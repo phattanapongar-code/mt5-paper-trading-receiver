@@ -371,7 +371,7 @@ def root_dashboard() -> FileResponse:
     return FileResponse("dashboard/index.html")
 
 
-@app.get("/dashboard-legacy")
+@app.get("/dashboard")
 def dashboard() -> FileResponse:
     return FileResponse("dashboard/index.html")
 
@@ -425,8 +425,3 @@ async def ws_ticks(ws: WebSocket) -> None:
 # Multi-bot foundation v1.1
 from app.multibot.router import router as multibot_router
 app.include_router(multibot_router)
-
-
-# Multi-bot runtime fan-out v1.2
-from app.multibot.middleware import MultiBotTickMiddleware
-app.add_middleware(MultiBotTickMiddleware)

@@ -2,23 +2,26 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 class ProfileCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=100)
+    name: str
     description: str = ""
     enabled: bool = True
 
 class BotCreate(BaseModel):
     profile_id: int
-    name: str = Field(min_length=1, max_length=100)
+    name: str
     strategy_type: str = "trend_ob"
     strategy_version: str = "v1"
     symbol: str = "XAUUSD"
     timeframe: str = "M15"
     enabled: bool = False
     initial_balance: float = Field(default=500.0, gt=0)
-    parameters: dict[str, Any] | None = None
+    parameters: dict[str, Any] = {}
 
 class CloneBotRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=100)
+    name: str
 
 class WalletResetRequest(BaseModel):
-    balance: float = Field(default=500.0, gt=0)
+    balance: float = Field(gt=0)
+
+class BotParameterUpdate(BaseModel):
+    parameters: dict[str, Any]

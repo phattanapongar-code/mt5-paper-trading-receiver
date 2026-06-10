@@ -11,7 +11,7 @@ def main() -> None:
         from app.multibot import db, service
 
         first = db.migrate()
-        assert first["schema_version"] == "1.1"
+        assert first["schema_version"] == "1.2"
         profiles = service.list_profiles()
         assert profiles[0]["name"] == "default"
         bots = service.list_bots()
