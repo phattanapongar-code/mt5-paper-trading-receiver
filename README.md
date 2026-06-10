@@ -53,3 +53,16 @@ python bootstrap_history.py --receiver http://172.20.10.4:5050 --symbol XAUUSD -
 - เพิ่ม `windows_addon/bootstrap_history.py`
 
 ยังไม่เปิด auto strategy ใน patch นี้ รอบต่อไปจึงค่อยเพิ่ม Swing/BOS detector
+
+## v0.4 Swing + BOS
+
+เพิ่ม market structure detector จากแท่งปิดเท่านั้น:
+
+```bash
+curl -X POST http://localhost:5050/api/market-structure/rebuild
+curl http://localhost:5050/api/market-structure/M15
+curl "http://localhost:5050/api/swings/M15?limit=20"
+curl "http://localhost:5050/api/bos/M15?limit=20"
+```
+
+BOS ใช้ candle close ข้าม confirmed swing; wick-only break จะไม่ถูกนับเป็น BOS

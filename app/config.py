@@ -19,6 +19,8 @@ class Settings:
     max_spread: float = float(os.getenv("MAX_SPREAD", "1.5"))
     stale_tick_seconds: int = int(os.getenv("STALE_TICK_SECONDS", "10"))
     strategy_enabled: bool = _bool("STRATEGY_ENABLED", "false")
+    swing_window: int = int(os.getenv("SWING_WINDOW", "3"))
+    structure_scan_limit: int = int(os.getenv("STRUCTURE_SCAN_LIMIT", "1200"))
 
 
 settings = Settings()

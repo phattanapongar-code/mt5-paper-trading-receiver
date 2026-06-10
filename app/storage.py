@@ -114,6 +114,36 @@ def init_db() -> None:
                 payload TEXT,
                 ts INTEGER NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS swing_points (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL,
+                timeframe TEXT NOT NULL,
+                side TEXT NOT NULL CHECK(side IN ('high', 'low')),
+                pivot_open_time INTEGER NOT NULL,
+                price REAL NOT NULL,
+                created_at INTEGER NOT NULL,
+                UNIQUE(symbol, timeframe, side, pivot_open_time)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_swing_points_lookup
+                ON swing_points(symbol, timeframe, pivot_open_time DESC);
+
+            CREATE TABLE IF NOT EXISTS bos_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL,
+                timeframe TEXT NOT NULL,
+                side TEXT NOT NULL CHECK(side IN ('bullish', 'bearish')),
+                swing_open_time INTEGER NOT NULL,
+                swing_price REAL NOT NULL,
+                break_open_time INTEGER NOT NULL,
+                break_close REAL NOT NULL,
+                created_at INTEGER NOT NULL,
+                UNIQUE(symbol, timeframe, side, swing_open_time, break_open_time)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_bos_events_lookup
+                ON bos_events(symbol, timeframe, break_open_time DESC);
             """
         )
         # Safe migration from v0.2 databases created before source_ts existed.

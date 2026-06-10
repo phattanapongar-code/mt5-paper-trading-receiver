@@ -12,9 +12,10 @@ from app import storage
 from app.candle_engine import CandleEngine, TIMEFRAMES
 from app.config import settings
 from app.models import CloseOrderRequest, HistoryImportRequest, OpenOrderRequest, ResetRequest, TickPayload
+from app.market_structure import MarketStructureEngine
 from app.paper_engine import PaperEngine
 
-app = FastAPI(title="MT5 Paper Trading Receiver", version="0.3.0")
+app = FastAPI(title="MT5 Paper Trading Receiver", version="0.4.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -26,6 +27,7 @@ app.add_middleware(
 storage.init_db()
 candles = CandleEngine()
 paper = PaperEngine()
+structure = MarketStructureEngine()
 
 latest_tick: dict[str, Any] | None = None
 last_received_at: int | None = None
@@ -80,6 +82,8 @@ async def receive_price(payload: TickPayload) -> dict[str, Any]:
     )
 
     candle_result = candles.update_tick(payload.symbol, payload.bid, payload.ask, now)
+    closed_timeframes = [c["timeframe"] for c in candle_result["closed"]]
+    structure_refresh = structure.refresh_timeframes(payload.symbol, closed_timeframes) if closed_timeframes else {}
     closed_position = paper.on_tick(payload.bid, payload.ask)
 
     event = {
@@ -87,10 +91,15 @@ async def receive_price(payload: TickPayload) -> dict[str, Any]:
         "tick": latest_tick,
         "closed_candles": candle_result["closed"],
         "closed_position": closed_position,
+        "market_structure_refresh": structure_refresh,
     }
     asyncio.create_task(broadcast(event))
 
-    return {"ok": True, "seq": payload.seq, "spread": spread, "closed_candles": len(candle_result["closed"])}
+    return {
+        "ok": True, "seq": payload.seq, "spread": spread,
+        "closed_candles": len(candle_result["closed"]),
+        "market_structure_refresh": structure_refresh,
+    }
 
 
 @app.post("/api/history/import/m1")
@@ -98,6 +107,7 @@ def import_m1_history(req: HistoryImportRequest) -> dict[str, Any]:
     if req.symbol != settings.symbol:
         raise HTTPException(status_code=400, detail=f"Symbol mismatch: receiver expects {settings.symbol}")
     summary = candles.import_m1_history(req.symbol, [c.model_dump() for c in req.candles])
+    market_structure = structure.rebuild_all(req.symbol)
     created_at = int(time.time())
     storage.execute(
         """
@@ -116,7 +126,7 @@ def import_m1_history(req: HistoryImportRequest) -> dict[str, Any]:
             created_at,
         ),
     )
-    return {"ok": True, "symbol": req.symbol, "created_at": created_at, **summary}
+    return {"ok": True, "symbol": req.symbol, "created_at": created_at, **summary, "market_structure": market_structure}
 
 
 @app.get("/api/history/status")
@@ -159,6 +169,11 @@ def state() -> dict[str, Any]:
         "latest_tick": latest_tick,
         "paper": paper_state,
         "indicators": indicator_state,
+        "market_structure": {
+            "M5": structure.state(settings.symbol, "M5"),
+            "M15": structure.state(settings.symbol, "M15"),
+            "H1": structure.state(settings.symbol, "H1"),
+        },
     }
 
 
@@ -182,6 +197,35 @@ def get_indicators(timeframe: str) -> dict[str, Any]:
     if timeframe not in TIMEFRAMES:
         raise HTTPException(status_code=400, detail=f"Unsupported timeframe. Use one of {list(TIMEFRAMES)}")
     return candles.get_indicators(settings.symbol, timeframe)
+
+
+@app.get("/api/swings/{timeframe}")
+def get_swings(timeframe: str, limit: int = 50) -> list[dict[str, Any]]:
+    timeframe = timeframe.upper()
+    if timeframe not in TIMEFRAMES:
+        raise HTTPException(status_code=400, detail=f"Unsupported timeframe. Use one of {list(TIMEFRAMES)}")
+    return structure.get_swings(settings.symbol, timeframe, max(1, min(limit, 1000)))
+
+
+@app.get("/api/bos/{timeframe}")
+def get_bos(timeframe: str, limit: int = 50) -> list[dict[str, Any]]:
+    timeframe = timeframe.upper()
+    if timeframe not in TIMEFRAMES:
+        raise HTTPException(status_code=400, detail=f"Unsupported timeframe. Use one of {list(TIMEFRAMES)}")
+    return structure.get_bos(settings.symbol, timeframe, max(1, min(limit, 1000)))
+
+
+@app.get("/api/market-structure/{timeframe}")
+def get_market_structure(timeframe: str) -> dict[str, Any]:
+    timeframe = timeframe.upper()
+    if timeframe not in TIMEFRAMES:
+        raise HTTPException(status_code=400, detail=f"Unsupported timeframe. Use one of {list(TIMEFRAMES)}")
+    return structure.state(settings.symbol, timeframe)
+
+
+@app.post("/api/market-structure/rebuild")
+def rebuild_market_structure() -> dict[str, Any]:
+    return {"ok": True, "symbol": settings.symbol, "market_structure": structure.rebuild_all(settings.symbol)}
 
 
 @app.post("/api/paper/open")
