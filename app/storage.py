@@ -183,11 +183,70 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_order_blocks_active
                 ON order_blocks(symbol, timeframe, status, is_strong);
+
+            CREATE TABLE IF NOT EXISTS pending_orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL,
+                timeframe TEXT NOT NULL,
+                side TEXT NOT NULL CHECK(side IN ('buy', 'sell')),
+                ob_id INTEGER NOT NULL,
+                ob_side TEXT NOT NULL CHECK(ob_side IN ('bullish', 'bearish')),
+                ob_break_open_time INTEGER NOT NULL,
+                source_trend TEXT NOT NULL CHECK(source_trend IN ('BULLISH', 'BEARISH')),
+                entry REAL NOT NULL,
+                stop_loss REAL NOT NULL,
+                take_profit REAL NOT NULL,
+                risk_distance REAL NOT NULL,
+                risk_reward REAL NOT NULL,
+                spread_at_creation REAL NOT NULL,
+                created_open_time INTEGER NOT NULL,
+                expires_open_time INTEGER NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('pending', 'cancelled', 'rejected', 'filled')),
+                cancel_reason TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_pending_orders_status
+                ON pending_orders(symbol, status, id DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_pending_orders_ob
+                ON pending_orders(ob_id, id DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_pending_orders_ob_stable
+                ON pending_orders(symbol, timeframe, ob_side, ob_break_open_time, id DESC);
+
+            CREATE TABLE IF NOT EXISTS replay_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
             """
         )
-        # Safe migration from v0.2 databases created before source_ts existed.
+        # Safe additive migrations: old SQLite data remains valid across patches.
         if "source_ts" not in _column_names(conn, "ticks"):
             conn.execute("ALTER TABLE ticks ADD COLUMN source_ts INTEGER")
+        trade_columns = _column_names(conn, "trades")
+        for name, sql_type in {
+            "pending_order_id": "INTEGER",
+            "strategy_id": "TEXT",
+            "risk_percent": "REAL",
+            "risk_usd": "REAL",
+            "initial_risk_distance": "REAL",
+            "r_multiple": "REAL",
+            "exit_reason": "TEXT",
+        }.items():
+            if name not in trade_columns:
+                conn.execute(f"ALTER TABLE trades ADD COLUMN {name} {sql_type}")
+        pending_columns = _column_names(conn, "pending_orders")
+        for name, sql_type in {
+            "filled_at": "INTEGER",
+            "fill_price": "REAL",
+            "trade_id": "INTEGER",
+        }.items():
+            if name not in pending_columns:
+                conn.execute(f"ALTER TABLE pending_orders ADD COLUMN {name} {sql_type}")
         cur = conn.execute("SELECT id FROM paper_account WHERE id = 1")
         if cur.fetchone() is None:
             import time

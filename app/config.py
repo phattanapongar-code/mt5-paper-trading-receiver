@@ -26,9 +26,21 @@ class Settings:
     impulse_range: float = float(os.getenv("IMPULSE_RANGE", "1.5"))
     swing_tolerance: float = float(os.getenv("SWING_TOLERANCE", "0.3"))
     ob_strong_score: int = int(os.getenv("OB_STRONG_SCORE", "6"))
-    # 0 keeps structural OB candidates until invalidated. Pending-order expiry
-    # is added separately in v0.6 as an 8-candle execution rule.
     ob_max_age_candles: int = int(os.getenv("OB_MAX_AGE_CANDLES", "0"))
+    pending_timeframe: str = os.getenv("PENDING_TIMEFRAME", "M15")
+    pending_expiry_candles: int = int(os.getenv("PENDING_EXPIRY_CANDLES", "8"))
+    pending_min_rr: float = float(os.getenv("PENDING_MIN_RR", "1.5"))
+    pending_tp_r_multiple: float = float(os.getenv("PENDING_TP_R_MULTIPLE", "2.0"))
+    pending_sl_buffer_ratio: float = float(os.getenv("PENDING_SL_BUFFER_RATIO", "0.30"))
+    pending_rejection_log_cooldown: int = int(os.getenv("PENDING_REJECTION_LOG_COOLDOWN", "60"))
+    # Final-build paper execution. It is OFF by default for safety.
+    auto_paper_enabled: bool = _bool("AUTO_PAPER_ENABLED", "false")
+    trend_risk_percent: float = float(os.getenv("TREND_RISK_PERCENT", "0.01"))
+    contract_size: float = float(os.getenv("CONTRACT_SIZE", "100.0"))
+    lot_step: float = float(os.getenv("LOT_STEP", "0.01"))
+    min_lot: float = float(os.getenv("MIN_LOT", "0.01"))
+    max_lot: float = float(os.getenv("MAX_LOT", "10.0"))
+    api_key: str = os.getenv("API_KEY", "")
 
 
 settings = Settings()

@@ -1,68 +1,97 @@
-# MT5 Paper Trading Receiver v0.3
+# MT5 Multi-Bot Foundation v1.1
 
-ฝั่ง Mac สำหรับรับ Tick จาก Windows MT5 Sender, สร้าง Candle M1/M5/M15/H1, คำนวณ MA/ATR และ import แท่ง M1 ย้อนหลังจาก MT5 เพื่อให้ MA300 พร้อมโดยไม่ต้องรอหลายวัน
+Patch แบบวางทับสำหรับอัปเกรด Receiver เดิม โดยไม่เขียนทับ logic ราคา, Candle, MA, BOS, OB, Pending Order หรือ Dashboard เดิม
 
-## Mac: run receiver
+## เพิ่มอะไร
+
+- Profiles หลายชุด
+- Bots หลายตัว
+- Wallet แยกต่อ Bot
+- Bot pending orders / positions / signal logs แยกต่อ Bot
+- Compare API
+- Multi-Bot Dashboard
+- Migration อัตโนมัติจากระบบเดิม
+
+## Migration อัตโนมัติ
+
+เมื่อรัน installer ระบบจะ:
+
+1. Backup `app/main.py`
+2. Backup `data/receiver.sqlite3`
+3. Inject Multi-Bot Router เข้า `app/main.py`
+4. สร้าง Profile `default`
+5. สร้าง Bot `trend-ob-baseline`
+6. สร้าง Wallet ของ Baseline Bot โดยใช้ยอดเงินจาก `paper_account` เดิม
+7. ผูก `trades` เดิมเข้ากับ Baseline Bot หากตารางเดิมมีอยู่
+8. ย้าย `pending_orders` เดิมแบบ best-effort หาก schema รองรับ
+9. ไม่ล้าง Tick, Candle, Swing, BOS และ OB เดิม
+
+## ติดตั้งบน Mac
+
+หยุด Receiver ก่อน จากนั้นแตก ZIP แล้ววางไฟล์ทับในโฟลเดอร์โปรเจกต์เดิม:
 
 ```bash
 cd ~/Documents/Hermess/mt5-paper-trading-receiver
 source .venv/bin/activate
+python scripts/install_multibot_v11.py
 python run.py
 ```
 
-## Mac: health and history status
+## ตรวจสอบ
 
 ```bash
-curl http://localhost:5050/health
-curl http://localhost:5050/api/history/status
-curl http://localhost:5050/api/indicators/M15
+curl http://localhost:5050/api/multibot/migration/status
+curl http://localhost:5050/api/profiles
+curl http://localhost:5050/api/bots
 ```
 
-## Windows: copy the history bootstrap script
-
-คัดลอกไฟล์นี้ไปไว้ในโฟลเดอร์เดียวกับ `sender.py`:
+เปิด Dashboard ใหม่:
 
 ```text
-windows_addon/bootstrap_history.py
+http://localhost:5050/multi-bot-dashboard
 ```
 
-เปิด MT5, Login แล้วเปิด PowerShell ในโฟลเดอร์ sender:
+Dashboard เดิมยังอยู่ตาม URL เดิม
 
-```powershell
-.\.venv\Scripts\Activate.ps1
-python bootstrap_history.py --receiver http://172.20.10.4:5050 --symbol XAUUSD --count 10000
-```
-
-สคริปต์จะ:
-
-1. ข้ามแท่ง M1 ปัจจุบันที่ยังไม่ปิด
-2. อ่านแท่ง M1 ย้อนหลังจาก MT5
-3. ตรวจ broker timestamp offset อัตโนมัติ เช่น `+10800s`
-4. normalize เวลาให้ตรงกับ Candle สดฝั่ง Mac
-5. ส่งข้อมูลเป็นชุดละ 1,000 แท่ง
-6. ให้ Mac rebuild M5/M15/H1 และคำนวณ MA300
-
-## What changed in v0.3
-
-- ใช้ receiver arrival time สร้าง Candle สด และเก็บ `source_timestamp` ไว้ debug
-- เพิ่ม migration คอลัมน์ `ticks.source_ts`
-- เพิ่ม endpoint `POST /api/history/import/m1`
-- เพิ่ม endpoint `GET /api/history/status`
-- เพิ่ม rebuild M1 history → M5/M15/H1
-- กัน aggregated candle ที่ไม่ครบแท่งรอบ session gap
-- เพิ่ม `windows_addon/bootstrap_history.py`
-
-ยังไม่เปิด auto strategy ใน patch นี้ รอบต่อไปจึงค่อยเพิ่ม Swing/BOS detector
-
-## v0.4 Swing + BOS
-
-เพิ่ม market structure detector จากแท่งปิดเท่านั้น:
+## สร้าง Profile ทดลอง
 
 ```bash
-curl -X POST http://localhost:5050/api/market-structure/rebuild
-curl http://localhost:5050/api/market-structure/M15
-curl "http://localhost:5050/api/swings/M15?limit=20"
-curl "http://localhost:5050/api/bos/M15?limit=20"
+curl -X POST http://localhost:5050/api/profiles \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"experimental","description":"test variants"}'
 ```
 
-BOS ใช้ candle close ข้าม confirmed swing; wick-only break จะไม่ถูกนับเป็น BOS
+## Clone Baseline Bot
+
+```bash
+curl -X POST http://localhost:5050/api/bots/1/clone \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"trend-ob-strict"}'
+```
+
+## เปิดหรือปิด Bot
+
+```bash
+curl -X POST http://localhost:5050/api/bots/2/enable
+curl -X POST http://localhost:5050/api/bots/2/disable
+```
+
+## Reset Wallet ของ Bot
+
+```bash
+curl -X POST http://localhost:5050/api/bots/2/wallet/reset \
+  -H 'Content-Type: application/json' \
+  -d '{"balance":500}'
+```
+
+## Compare Bots
+
+```bash
+curl 'http://localhost:5050/api/compare?bot_ids=1,2'
+```
+
+## หมายเหตุสำคัญ
+
+v1.1 เป็น Multi-Bot Foundation: สร้างโครงสร้าง DB, API, Wallet และ Dashboard สำหรับหลาย Bot แล้ว แต่ runtime strategy เดิมยังคงทำงานเป็น Baseline Bot ตาม logic เดิม เพื่อไม่เสี่ยงทำลายระบบที่รันได้อยู่
+
+ขั้นถัดไปคือ v1.2 Runtime Fan-Out: ส่ง market snapshot เดียวกันให้ Bot ที่เปิดใช้งานแต่ละตัว evaluate แยกกัน และสร้าง Pending/Position ลงตารางแยกของแต่ละ Bot

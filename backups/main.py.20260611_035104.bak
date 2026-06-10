@@ -420,8 +420,3 @@ async def ws_ticks(ws: WebSocket) -> None:
             await ws.receive_text()
     except WebSocketDisconnect:
         ws_clients.discard(ws)
-
-
-# Multi-bot foundation v1.1
-from app.multibot.router import router as multibot_router
-app.include_router(multibot_router)
