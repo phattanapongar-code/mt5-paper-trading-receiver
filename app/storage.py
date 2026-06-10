@@ -144,6 +144,45 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_bos_events_lookup
                 ON bos_events(symbol, timeframe, break_open_time DESC);
+
+
+            CREATE TABLE IF NOT EXISTS order_blocks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL,
+                timeframe TEXT NOT NULL,
+                side TEXT NOT NULL CHECK(side IN ('bullish', 'bearish')),
+                bos_id INTEGER NOT NULL,
+                swing_open_time INTEGER NOT NULL,
+                swing_price REAL NOT NULL,
+                break_open_time INTEGER NOT NULL,
+                break_close REAL NOT NULL,
+                ob_open_time INTEGER NOT NULL,
+                ob_open REAL NOT NULL,
+                ob_close REAL NOT NULL,
+                ob_low REAL NOT NULL,
+                ob_high REAL NOT NULL,
+                impulse_body REAL NOT NULL,
+                impulse_range REAL NOT NULL,
+                impulse_body_ratio REAL,
+                impulse_range_ratio REAL,
+                origin_swing_open_time INTEGER,
+                origin_swing_price REAL,
+                swing_distance_ratio REAL,
+                retest_count INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL CHECK(status IN ('active', 'tested_once', 'invalidated', 'expired')),
+                score INTEGER NOT NULL,
+                is_strong INTEGER NOT NULL DEFAULT 0,
+                score_reasons TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                UNIQUE(symbol, timeframe, bos_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_order_blocks_lookup
+                ON order_blocks(symbol, timeframe, break_open_time DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_order_blocks_active
+                ON order_blocks(symbol, timeframe, status, is_strong);
             """
         )
         # Safe migration from v0.2 databases created before source_ts existed.

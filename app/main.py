@@ -13,9 +13,10 @@ from app.candle_engine import CandleEngine, TIMEFRAMES
 from app.config import settings
 from app.models import CloseOrderRequest, HistoryImportRequest, OpenOrderRequest, ResetRequest, TickPayload
 from app.market_structure import MarketStructureEngine
+from app.order_blocks import OrderBlockEngine
 from app.paper_engine import PaperEngine
 
-app = FastAPI(title="MT5 Paper Trading Receiver", version="0.4.0")
+app = FastAPI(title="MT5 Paper Trading Receiver", version="0.5.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -28,6 +29,7 @@ storage.init_db()
 candles = CandleEngine()
 paper = PaperEngine()
 structure = MarketStructureEngine()
+order_blocks = OrderBlockEngine()
 
 latest_tick: dict[str, Any] | None = None
 last_received_at: int | None = None
@@ -84,6 +86,7 @@ async def receive_price(payload: TickPayload) -> dict[str, Any]:
     candle_result = candles.update_tick(payload.symbol, payload.bid, payload.ask, now)
     closed_timeframes = [c["timeframe"] for c in candle_result["closed"]]
     structure_refresh = structure.refresh_timeframes(payload.symbol, closed_timeframes) if closed_timeframes else {}
+    order_block_refresh = order_blocks.refresh_timeframes(payload.symbol, closed_timeframes) if closed_timeframes else {}
     closed_position = paper.on_tick(payload.bid, payload.ask)
 
     event = {
@@ -92,6 +95,7 @@ async def receive_price(payload: TickPayload) -> dict[str, Any]:
         "closed_candles": candle_result["closed"],
         "closed_position": closed_position,
         "market_structure_refresh": structure_refresh,
+        "order_block_refresh": order_block_refresh,
     }
     asyncio.create_task(broadcast(event))
 
@@ -99,6 +103,7 @@ async def receive_price(payload: TickPayload) -> dict[str, Any]:
         "ok": True, "seq": payload.seq, "spread": spread,
         "closed_candles": len(candle_result["closed"]),
         "market_structure_refresh": structure_refresh,
+        "order_block_refresh": order_block_refresh,
     }
 
 
@@ -108,6 +113,7 @@ def import_m1_history(req: HistoryImportRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=f"Symbol mismatch: receiver expects {settings.symbol}")
     summary = candles.import_m1_history(req.symbol, [c.model_dump() for c in req.candles])
     market_structure = structure.rebuild_all(req.symbol)
+    order_block_summary = order_blocks.rebuild_all(req.symbol)
     created_at = int(time.time())
     storage.execute(
         """
@@ -126,7 +132,10 @@ def import_m1_history(req: HistoryImportRequest) -> dict[str, Any]:
             created_at,
         ),
     )
-    return {"ok": True, "symbol": req.symbol, "created_at": created_at, **summary, "market_structure": market_structure}
+    return {
+        "ok": True, "symbol": req.symbol, "created_at": created_at, **summary,
+        "market_structure": market_structure, "order_blocks": order_block_summary,
+    }
 
 
 @app.get("/api/history/status")
@@ -173,6 +182,11 @@ def state() -> dict[str, Any]:
             "M5": structure.state(settings.symbol, "M5"),
             "M15": structure.state(settings.symbol, "M15"),
             "H1": structure.state(settings.symbol, "H1"),
+        },
+        "order_blocks": {
+            "M5": order_blocks.state(settings.symbol, "M5"),
+            "M15": order_blocks.state(settings.symbol, "M15"),
+            "H1": order_blocks.state(settings.symbol, "H1"),
         },
     }
 
@@ -226,6 +240,39 @@ def get_market_structure(timeframe: str) -> dict[str, Any]:
 @app.post("/api/market-structure/rebuild")
 def rebuild_market_structure() -> dict[str, Any]:
     return {"ok": True, "symbol": settings.symbol, "market_structure": structure.rebuild_all(settings.symbol)}
+
+
+@app.post("/api/order-blocks/rebuild")
+def rebuild_order_blocks() -> dict[str, Any]:
+    # Rebuild market structure first so OB candidates always derive from the
+    # latest closed-candle swings and BOS events.
+    market_structure = structure.rebuild_all(settings.symbol)
+    summary = order_blocks.rebuild_all(settings.symbol)
+    return {"ok": True, "symbol": settings.symbol, "market_structure": market_structure, "order_blocks": summary}
+
+
+@app.get("/api/order-blocks/active/{timeframe}")
+def get_active_order_blocks(timeframe: str, limit: int = 50) -> list[dict[str, Any]]:
+    timeframe = timeframe.upper()
+    if timeframe not in TIMEFRAMES:
+        raise HTTPException(status_code=400, detail=f"Unsupported timeframe. Use one of {list(TIMEFRAMES)}")
+    return order_blocks.get_active(settings.symbol, timeframe, max(1, min(limit, 1000)))
+
+
+@app.get("/api/order-blocks/state/{timeframe}")
+def get_order_block_state(timeframe: str) -> dict[str, Any]:
+    timeframe = timeframe.upper()
+    if timeframe not in TIMEFRAMES:
+        raise HTTPException(status_code=400, detail=f"Unsupported timeframe. Use one of {list(TIMEFRAMES)}")
+    return order_blocks.state(settings.symbol, timeframe)
+
+
+@app.get("/api/order-blocks/{timeframe}")
+def get_order_blocks(timeframe: str, limit: int = 50) -> list[dict[str, Any]]:
+    timeframe = timeframe.upper()
+    if timeframe not in TIMEFRAMES:
+        raise HTTPException(status_code=400, detail=f"Unsupported timeframe. Use one of {list(TIMEFRAMES)}")
+    return order_blocks.get_order_blocks(settings.symbol, timeframe, max(1, min(limit, 1000)))
 
 
 @app.post("/api/paper/open")
