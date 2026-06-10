@@ -1,8 +1,8 @@
-# MT5 Paper Trading Receiver v0.2
+# MT5 Paper Trading Receiver v0.3
 
-ฝั่ง Mac สำหรับรับราคา Tick จาก Windows MT5 Sender แล้วรวม Tick เป็น Candle M1/M5/M15/H1 พร้อม MA/ATR และ Paper Trading เบื้องต้น
+ฝั่ง Mac สำหรับรับ Tick จาก Windows MT5 Sender, สร้าง Candle M1/M5/M15/H1, คำนวณ MA/ATR และ import แท่ง M1 ย้อนหลังจาก MT5 เพื่อให้ MA300 พร้อมโดยไม่ต้องรอหลายวัน
 
-## Run on Mac
+## Mac: run receiver
 
 ```bash
 cd ~/Documents/Hermess/mt5-paper-trading-receiver
@@ -10,60 +10,46 @@ source .venv/bin/activate
 python run.py
 ```
 
-ถ้ายังไม่ได้ติดตั้ง dependencies:
-
-```bash
-python -m pip install -r requirements.txt
-```
-
-## Health
+## Mac: health and history status
 
 ```bash
 curl http://localhost:5050/health
-```
-
-## State
-
-```bash
-curl http://localhost:5050/api/state
-```
-
-## Candles
-
-```bash
-curl http://localhost:5050/api/candles/M15?limit=20
-curl http://localhost:5050/api/candles/M15?limit=20\&closed_only=true
-```
-
-## Indicators
-
-```bash
+curl http://localhost:5050/api/history/status
 curl http://localhost:5050/api/indicators/M15
 ```
 
-## Paper Trade Manual
+## Windows: copy the history bootstrap script
 
-```bash
-curl -X POST http://localhost:5050/api/paper/open \
-  -H 'Content-Type: application/json' \
-  -d '{"side":"buy","lot":0.01,"stop_loss":3300,"take_profit":3400,"note":"manual_test"}'
+คัดลอกไฟล์นี้ไปไว้ในโฟลเดอร์เดียวกับ `sender.py`:
+
+```text
+windows_addon/bootstrap_history.py
 ```
 
-```bash
-curl -X POST http://localhost:5050/api/paper/close \
-  -H 'Content-Type: application/json' \
-  -d '{"note":"manual_close"}'
+เปิด MT5, Login แล้วเปิด PowerShell ในโฟลเดอร์ sender:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+python bootstrap_history.py --receiver http://172.20.10.4:5050 --symbol XAUUSD --count 10000
 ```
 
-## What changed in v0.2
+สคริปต์จะ:
 
-- เพิ่ม Candle Aggregator: M1/M5/M15/H1
-- เก็บ candles ลง SQLite
-- เพิ่ม MA60/MA80/MA300
-- เพิ่ม ATR14 และ Average Body 20
-- เพิ่ม Trend Context: BULLISH / BEARISH / NEUTRAL / WARMING_UP
-- เพิ่ม endpoint `/api/candles/{timeframe}`
-- เพิ่ม endpoint `/api/indicators/{timeframe}`
-- `/api/state` แสดง indicator ทุก timeframe
+1. ข้ามแท่ง M1 ปัจจุบันที่ยังไม่ปิด
+2. อ่านแท่ง M1 ย้อนหลังจาก MT5
+3. ตรวจ broker timestamp offset อัตโนมัติ เช่น `+10800s`
+4. normalize เวลาให้ตรงกับ Candle สดฝั่ง Mac
+5. ส่งข้อมูลเป็นชุดละ 1,000 แท่ง
+6. ให้ Mac rebuild M5/M15/H1 และคำนวณ MA300
 
-ยังไม่เปิด strategy อัตโนมัติใน patch นี้ เพื่อให้ตรวจ Candle/MA ให้ถูกก่อน
+## What changed in v0.3
+
+- ใช้ receiver arrival time สร้าง Candle สด และเก็บ `source_timestamp` ไว้ debug
+- เพิ่ม migration คอลัมน์ `ticks.source_ts`
+- เพิ่ม endpoint `POST /api/history/import/m1`
+- เพิ่ม endpoint `GET /api/history/status`
+- เพิ่ม rebuild M1 history → M5/M15/H1
+- กัน aggregated candle ที่ไม่ครบแท่งรอบ session gap
+- เพิ่ม `windows_addon/bootstrap_history.py`
+
+ยังไม่เปิด auto strategy ใน patch นี้ รอบต่อไปจึงค่อยเพิ่ม Swing/BOS detector

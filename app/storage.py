@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator, Sequence
 
 from app.config import settings
 
@@ -24,6 +25,10 @@ def get_conn() -> sqlite3.Connection:
         return _conn
 
 
+def _column_names(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
 def init_db() -> None:
     conn = get_conn()
     with _lock:
@@ -39,7 +44,8 @@ def init_db() -> None:
                 spread REAL NOT NULL,
                 seq INTEGER,
                 ts INTEGER NOT NULL,
-                received_at INTEGER NOT NULL
+                received_at INTEGER NOT NULL,
+                source_ts INTEGER
             );
 
             CREATE INDEX IF NOT EXISTS idx_ticks_symbol_ts ON ticks(symbol, ts DESC);
@@ -62,6 +68,19 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_candles_lookup
                 ON candles(symbol, timeframe, open_time DESC);
+
+            CREATE TABLE IF NOT EXISTS history_imports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL,
+                source TEXT NOT NULL,
+                timeframe TEXT NOT NULL,
+                offset_seconds INTEGER NOT NULL DEFAULT 0,
+                imported_m1 INTEGER NOT NULL,
+                rebuilt_m5 INTEGER NOT NULL,
+                rebuilt_m15 INTEGER NOT NULL,
+                rebuilt_h1 INTEGER NOT NULL,
+                created_at INTEGER NOT NULL
+            );
 
             CREATE TABLE IF NOT EXISTS paper_account (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -97,6 +116,9 @@ def init_db() -> None:
             );
             """
         )
+        # Safe migration from v0.2 databases created before source_ts existed.
+        if "source_ts" not in _column_names(conn, "ticks"):
+            conn.execute("ALTER TABLE ticks ADD COLUMN source_ts INTEGER")
         cur = conn.execute("SELECT id FROM paper_account WHERE id = 1")
         if cur.fetchone() is None:
             import time
@@ -107,12 +129,31 @@ def init_db() -> None:
         conn.commit()
 
 
+@contextmanager
+def transaction() -> Iterator[sqlite3.Connection]:
+    conn = get_conn()
+    with _lock:
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+
 def execute(sql: str, params: Iterable[Any] = ()) -> sqlite3.Cursor:
     conn = get_conn()
     with _lock:
         cur = conn.execute(sql, tuple(params))
         conn.commit()
         return cur
+
+
+def executemany(sql: str, params: Sequence[Iterable[Any]]) -> None:
+    conn = get_conn()
+    with _lock:
+        conn.executemany(sql, [tuple(p) for p in params])
+        conn.commit()
 
 
 def query_one(sql: str, params: Iterable[Any] = ()) -> dict[str, Any] | None:

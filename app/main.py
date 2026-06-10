@@ -11,10 +11,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import storage
 from app.candle_engine import CandleEngine, TIMEFRAMES
 from app.config import settings
-from app.models import CloseOrderRequest, OpenOrderRequest, ResetRequest, TickPayload
+from app.models import CloseOrderRequest, HistoryImportRequest, OpenOrderRequest, ResetRequest, TickPayload
 from app.paper_engine import PaperEngine
 
-app = FastAPI(title="MT5 Paper Trading Receiver", version="0.2.0")
+app = FastAPI(title="MT5 Paper Trading Receiver", version="0.3.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -63,6 +63,8 @@ async def receive_price(payload: TickPayload) -> dict[str, Any]:
         "ask": payload.ask,
         "mid": mid,
         "spread": spread,
+        # Use receiver arrival time for live candle bucketing. Keep the MT5
+        # timestamp separately for diagnostics because broker time may be offset.
         "timestamp": now,
         "source_timestamp": payload.timestamp,
         "seq": payload.seq,
@@ -71,15 +73,12 @@ async def receive_price(payload: TickPayload) -> dict[str, Any]:
 
     storage.execute(
         """
-        INSERT INTO ticks(symbol, type, bid, ask, mid, spread, seq, ts, received_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO ticks(symbol, type, bid, ask, mid, spread, seq, ts, received_at, source_ts)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (payload.symbol, payload.type, payload.bid, payload.ask, mid, spread, payload.seq, now, now),
+        (payload.symbol, payload.type, payload.bid, payload.ask, mid, spread, payload.seq, now, now, payload.timestamp),
     )
 
-    # Use receiver arrival time for live candle bucketing.
-    # Keep source_timestamp separately for diagnostics because some MT5 brokers
-    # expose a server-time offset in tick.time.
     candle_result = candles.update_tick(payload.symbol, payload.bid, payload.ask, now)
     closed_position = paper.on_tick(payload.bid, payload.ask)
 
@@ -92,6 +91,45 @@ async def receive_price(payload: TickPayload) -> dict[str, Any]:
     asyncio.create_task(broadcast(event))
 
     return {"ok": True, "seq": payload.seq, "spread": spread, "closed_candles": len(candle_result["closed"])}
+
+
+@app.post("/api/history/import/m1")
+def import_m1_history(req: HistoryImportRequest) -> dict[str, Any]:
+    if req.symbol != settings.symbol:
+        raise HTTPException(status_code=400, detail=f"Symbol mismatch: receiver expects {settings.symbol}")
+    summary = candles.import_m1_history(req.symbol, [c.model_dump() for c in req.candles])
+    created_at = int(time.time())
+    storage.execute(
+        """
+        INSERT INTO history_imports(symbol, source, timeframe, offset_seconds, imported_m1, rebuilt_m5, rebuilt_m15, rebuilt_h1, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            req.symbol,
+            req.source,
+            req.timeframe,
+            req.offset_seconds,
+            summary["imported_m1"],
+            summary["rebuilt_m5"],
+            summary["rebuilt_m15"],
+            summary["rebuilt_h1"],
+            created_at,
+        ),
+    )
+    return {"ok": True, "symbol": req.symbol, "created_at": created_at, **summary}
+
+
+@app.get("/api/history/status")
+def history_status() -> dict[str, Any]:
+    counts = {
+        tf: storage.query_one(
+            "SELECT COUNT(*) AS count FROM candles WHERE symbol = ? AND timeframe = ? AND is_closed = 1",
+            (settings.symbol, tf),
+        )["count"]
+        for tf in TIMEFRAMES
+    }
+    latest_import = storage.query_one("SELECT * FROM history_imports ORDER BY id DESC LIMIT 1")
+    return {"symbol": settings.symbol, "closed_candles": counts, "latest_import": latest_import}
 
 
 @app.get("/health")
@@ -115,9 +153,7 @@ def state() -> dict[str, Any]:
         bid=latest_tick["bid"] if latest_tick else None,
         ask=latest_tick["ask"] if latest_tick else None,
     )
-    indicator_state = {}
-    for tf in ["M1", "M5", "M15", "H1"]:
-        indicator_state[tf] = candles.get_indicators(settings.symbol, tf)
+    indicator_state = {tf: candles.get_indicators(settings.symbol, tf) for tf in TIMEFRAMES}
     return {
         "health": health(),
         "latest_tick": latest_tick,
@@ -154,14 +190,9 @@ def open_paper(req: OpenOrderRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="No tick received yet")
     try:
         return paper.open_position(
-            symbol=latest_tick["symbol"],
-            side=req.side,
-            lot=req.lot,
-            bid=latest_tick["bid"],
-            ask=latest_tick["ask"],
-            stop_loss=req.stop_loss,
-            take_profit=req.take_profit,
-            note=req.note,
+            symbol=latest_tick["symbol"], side=req.side, lot=req.lot,
+            bid=latest_tick["bid"], ask=latest_tick["ask"],
+            stop_loss=req.stop_loss, take_profit=req.take_profit, note=req.note,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, asdict
-from typing import Any
+from dataclasses import asdict, dataclass
+from typing import Any, Iterable
 
 from app import storage
 from app.indicators import compute_indicators
@@ -88,6 +88,115 @@ class CandleEngine:
 
         return {"closed": closed, "current": current}
 
+    def import_m1_history(self, symbol: str, rows: Iterable[dict[str, Any]]) -> dict[str, int]:
+        now = int(time.time())
+        normalized: list[tuple[Any, ...]] = []
+        for row in rows:
+            open_time = self._bucket(int(row["open_time"]), 60)
+            normalized.append(
+                (
+                    symbol,
+                    "M1",
+                    open_time,
+                    open_time + 60,
+                    float(row["open"]),
+                    float(row["high"]),
+                    float(row["low"]),
+                    float(row["close"]),
+                    int(row.get("tick_volume", 0)),
+                    1,
+                    now,
+                )
+            )
+
+        with storage.transaction() as conn:
+            conn.executemany(
+                """
+                INSERT INTO candles(symbol, timeframe, open_time, close_time, open, high, low, close, tick_count, is_closed, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(symbol, timeframe, open_time) DO UPDATE SET
+                    close_time = excluded.close_time,
+                    open = excluded.open,
+                    high = excluded.high,
+                    low = excluded.low,
+                    close = excluded.close,
+                    tick_count = excluded.tick_count,
+                    is_closed = 1,
+                    updated_at = excluded.updated_at
+                """,
+                normalized,
+            )
+
+        rebuilt = self.rebuild_from_m1(symbol)
+        return {"imported_m1": len(normalized), **rebuilt}
+
+    def rebuild_from_m1(self, symbol: str) -> dict[str, int]:
+        m1_rows = storage.query_all(
+            """
+            SELECT * FROM candles
+            WHERE symbol = ? AND timeframe = 'M1' AND is_closed = 1
+            ORDER BY open_time ASC
+            """,
+            (symbol,),
+        )
+        result: dict[str, int] = {}
+        for timeframe in ["M5", "M15", "H1"]:
+            result[f"rebuilt_{timeframe.lower()}"] = self._rebuild_timeframe(symbol, timeframe, m1_rows)
+        return result
+
+    def _rebuild_timeframe(self, symbol: str, timeframe: str, m1_rows: list[dict[str, Any]]) -> int:
+        seconds = TIMEFRAMES[timeframe]
+        required_count = seconds // 60
+        groups: dict[int, list[dict[str, Any]]] = {}
+        for row in m1_rows:
+            bucket = self._bucket(int(row["open_time"]), seconds)
+            groups.setdefault(bucket, []).append(row)
+
+        now = int(time.time())
+        values: list[tuple[Any, ...]] = []
+        for open_time, rows in sorted(groups.items()):
+            rows.sort(key=lambda r: int(r["open_time"]))
+            expected = [open_time + i * 60 for i in range(required_count)]
+            actual = [int(r["open_time"]) for r in rows]
+            if actual != expected:
+                # Reject incomplete bars around weekends, session gaps, and partial history edges.
+                continue
+            values.append(
+                (
+                    symbol,
+                    timeframe,
+                    open_time,
+                    open_time + seconds,
+                    float(rows[0]["open"]),
+                    max(float(r["high"]) for r in rows),
+                    min(float(r["low"]) for r in rows),
+                    float(rows[-1]["close"]),
+                    sum(int(r["tick_count"]) for r in rows),
+                    1,
+                    now,
+                )
+            )
+
+        if values:
+            with storage.transaction() as conn:
+                conn.executemany(
+                    """
+                    INSERT INTO candles(symbol, timeframe, open_time, close_time, open, high, low, close, tick_count, is_closed, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(symbol, timeframe, open_time) DO UPDATE SET
+                        close_time = excluded.close_time,
+                        open = excluded.open,
+                        high = excluded.high,
+                        low = excluded.low,
+                        close = excluded.close,
+                        tick_count = excluded.tick_count,
+                        is_closed = 1,
+                        updated_at = excluded.updated_at
+                    """,
+                    values,
+                )
+        return len(values)
+
     def _load_active(self, symbol: str, timeframe: str, open_time: int) -> Candle | None:
         row = storage.query_one(
             """
@@ -147,5 +256,5 @@ class CandleEngine:
         return list(reversed(rows))
 
     def get_indicators(self, symbol: str, timeframe: str) -> dict[str, Any]:
-        candles = self.get_candles(symbol, timeframe, limit=400, closed_only=True)
-        return compute_indicators(candles)
+        rows = self.get_candles(symbol, timeframe, limit=400, closed_only=True)
+        return compute_indicators(rows)
