@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from app import storage
@@ -38,3 +39,29 @@ class StatsEngine:
             "balance": float(account.get("balance") or 0.0),
             "realized_pnl": float(account.get("realized_pnl") or 0.0),
         }
+
+    def equity_curve(self) -> list[tuple[int, float]]:
+        closed = storage.query_all(
+            "SELECT closed_at, pnl FROM trades WHERE status = 'closed' AND closed_at IS NOT NULL ORDER BY closed_at ASC, id ASC"
+        )
+        result: list[tuple[int, float]] = []
+        cum = 0.0
+        for row in closed:
+            cum += float(row["pnl"] or 0.0)
+            result.append((int(row["closed_at"]), round(cum, 2)))
+        return result
+
+    def pnl_by_day(self) -> list[tuple[int, float]]:
+        closed = storage.query_all(
+            "SELECT closed_at, pnl FROM trades WHERE status = 'closed' AND closed_at IS NOT NULL ORDER BY closed_at ASC"
+        )
+        daily: dict[str, float] = {}
+        for row in closed:
+            dt = datetime.fromtimestamp(int(row["closed_at"]), tz=timezone.utc)
+            day_key = dt.strftime("%Y-%m-%d")
+            daily[day_key] = daily.get(day_key, 0.0) + float(row["pnl"] or 0.0)
+        result: list[tuple[int, float]] = []
+        for day_key in sorted(daily):
+            ts = int(datetime.strptime(day_key, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp())
+            result.append((ts, round(daily[day_key], 2)))
+        return result

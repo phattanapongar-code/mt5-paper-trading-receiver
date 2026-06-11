@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import time
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from app import storage
 from app.candle_engine import CandleEngine, TIMEFRAMES
@@ -29,6 +30,37 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def basic_auth_middleware(request: Request, call_next):
+    if not request.url.path.startswith("/api/"):
+        return await call_next(request)
+    if request.method == "OPTIONS":
+        return await call_next(request)
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Basic "):
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Not authenticated"},
+            headers={"WWW-Authenticate": "Basic realm=\"dashboard\""},
+        )
+    try:
+        decoded = base64.b64decode(auth.removeprefix("Basic ")).decode()
+        username, password = decoded.split(":", 1)
+    except Exception:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Invalid authorization header"},
+            headers={"WWW-Authenticate": "Basic realm=\"dashboard\""},
+        )
+    if username != settings.dashboard_username or password != settings.dashboard_password:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Invalid credentials"},
+            headers={"WWW-Authenticate": "Basic realm=\"dashboard\""},
+        )
+    return await call_next(request)
 
 storage.init_db()
 candles = CandleEngine()
@@ -394,6 +426,16 @@ def strategy_disable() -> dict[str, Any]:
 @app.get("/api/stats")
 def stats() -> dict[str, Any]:
     return stats_engine.summary()
+
+
+@app.get("/api/stats/equity")
+def stats_equity() -> list[tuple[int, float]]:
+    return stats_engine.equity_curve()
+
+
+@app.get("/api/stats/pnl-by-day")
+def stats_pnl_by_day() -> list[tuple[int, float]]:
+    return stats_engine.pnl_by_day()
 
 
 @app.get("/api/signal-logs")

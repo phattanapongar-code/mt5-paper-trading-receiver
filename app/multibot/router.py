@@ -43,6 +43,13 @@ def enable_profile(profile_id: int):
     return result
 
 
+@router.delete("/api/profiles/{profile_id}")
+def delete_profile(profile_id: int):
+    if not service.delete_profile(profile_id):
+        raise HTTPException(404, "profile not found")
+    return {"ok": True}
+
+
 @router.post("/api/profiles/{profile_id}/disable")
 def disable_profile(profile_id: int):
     result = service.set_profile_enabled(profile_id, False)
@@ -98,6 +105,13 @@ def clone_bot(bot_id: int, payload: CloneBotRequest):
         raise HTTPException(404, str(exc))
     except Exception as exc:
         raise HTTPException(400, str(exc))
+
+
+@router.delete("/api/bots/{bot_id}")
+def delete_bot(bot_id: int):
+    if not service.delete_bot(bot_id):
+        raise HTTPException(404, "bot not found")
+    return {"ok": True}
 
 
 @router.post("/api/bots/{bot_id}/enable")

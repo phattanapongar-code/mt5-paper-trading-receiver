@@ -245,3 +245,36 @@ def trades(bot_id: int, limit: int = 100) -> list[dict[str, Any]]:
         return [dict(r) for r in conn.execute("SELECT * FROM bot_positions WHERE bot_id=? ORDER BY id DESC LIMIT ?", (bot_id, limit)).fetchall()]
     finally:
         conn.close()
+
+
+def delete_profile(profile_id: int) -> bool:
+    conn = connect()
+    try:
+        bot_ids = [r[0] for r in conn.execute("SELECT id FROM bots WHERE profile_id=?", (profile_id,)).fetchall()]
+        for bid in bot_ids:
+            conn.execute("DELETE FROM bot_pending_orders WHERE bot_id=?", (bid,))
+            conn.execute("DELETE FROM bot_positions WHERE bot_id=?", (bid,))
+            conn.execute("DELETE FROM bot_signal_logs WHERE bot_id=?", (bid,))
+            conn.execute("DELETE FROM bot_runtime_state WHERE bot_id=?", (bid,))
+            conn.execute("DELETE FROM wallets WHERE bot_id=?", (bid,))
+        conn.execute("DELETE FROM bots WHERE profile_id=?", (profile_id,))
+        conn.execute("DELETE FROM profiles WHERE id=?", (profile_id,))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def delete_bot(bot_id: int) -> bool:
+    conn = connect()
+    try:
+        conn.execute("DELETE FROM bot_pending_orders WHERE bot_id=?", (bot_id,))
+        conn.execute("DELETE FROM bot_positions WHERE bot_id=?", (bot_id,))
+        conn.execute("DELETE FROM bot_signal_logs WHERE bot_id=?", (bot_id,))
+        conn.execute("DELETE FROM bot_runtime_state WHERE bot_id=?", (bot_id,))
+        conn.execute("DELETE FROM wallets WHERE bot_id=?", (bot_id,))
+        conn.execute("DELETE FROM bots WHERE id=?", (bot_id,))
+        conn.commit()
+        return True
+    finally:
+        conn.close()

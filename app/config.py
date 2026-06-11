@@ -41,6 +41,8 @@ class Settings:
     min_lot: float = float(os.getenv("MIN_LOT", "0.01"))
     max_lot: float = float(os.getenv("MAX_LOT", "10.0"))
     api_key: str = os.getenv("API_KEY", "")
+    dashboard_username: str = os.getenv("DASHBOARD_USERNAME", "admin")
+    dashboard_password: str = os.getenv("DASHBOARD_PASSWORD", "admin")
 
 
 settings = Settings()
