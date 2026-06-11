@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import client from '../api/client'
 import type { BotState, Wallet, Trade, BotSignalLog, BotStats } from '../types/api'
 
-type Tab = 'info' | 'signals'
+type Tab = 'info' | 'signals' | 'edit'
 
 export default function BotDetail() {
   const { botId } = useParams()
@@ -15,6 +15,9 @@ export default function BotDetail() {
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<Tab>('info')
   const [paramsText, setParamsText] = useState('')
+  const [editName, setEditName] = useState('')
+  const [editSymbol, setEditSymbol] = useState('')
+  const [editTf, setEditTf] = useState('')
 
   const botStats: BotStats = useMemo(() => {
     const closed = trades.filter(t => t.status === 'closed')
@@ -62,10 +65,13 @@ export default function BotDetail() {
   }, [fetchData])
 
   useEffect(() => {
-    if (state?.bot?.parameters) {
+    if (state?.bot) {
       setParamsText(JSON.stringify(state.bot.parameters, null, 2))
+      setEditName(state.bot.name)
+      setEditSymbol(state.bot.symbol)
+      setEditTf(state.bot.timeframe)
     }
-  }, [state?.bot?.parameters])
+  }, [state?.bot])
 
   const toggleBot = useCallback(async (enabled: boolean) => {
     await client.post(`/bots/${botId}/${enabled ? 'enable' : 'disable'}`)
@@ -79,6 +85,12 @@ export default function BotDetail() {
       fetchData()
     }
   }, [botId, fetchData])
+
+  const saveEdit = useCallback(async () => {
+    await client.put(`/bots/${botId}`, { name: editName, symbol: editSymbol, timeframe: editTf })
+    setTab('info')
+    fetchData()
+  }, [botId, editName, editSymbol, editTf, fetchData])
 
   const cloneBot = useCallback(async () => {
     const name = prompt('New bot name:', (state?.bot?.name ?? '') + ' (clone)')
@@ -224,6 +236,7 @@ export default function BotDetail() {
 
       <div className="flex gap-4 border-b border-hairline-on-dark">
         <button onClick={() => setTab('info')} className={`pb-2 text-xs font-semibold uppercase tracking-wider cursor-pointer ${tab === 'info' ? 'text-primary border-b-2 border-primary' : 'text-muted'}`}>Info / Params</button>
+        <button onClick={() => setTab('edit')} className={`pb-2 text-xs font-semibold uppercase tracking-wider cursor-pointer ${tab === 'edit' ? 'text-primary border-b-2 border-primary' : 'text-muted'}`}>Edit</button>
         <button onClick={() => setTab('signals')} className={`pb-2 text-xs font-semibold uppercase tracking-wider cursor-pointer ${tab === 'signals' ? 'text-primary border-b-2 border-primary' : 'text-muted'}`}>Signal Logs ({signals.length})</button>
       </div>
 
@@ -244,6 +257,36 @@ export default function BotDetail() {
               <div className="flex justify-between"><span className="text-muted">Net PnL</span><span className={`font-mono ${botStats.net_pnl >= 0 ? 'text-trading-up' : 'text-trading-down'}`}>${botStats.net_pnl.toFixed(2)}</span></div>
               <div className="flex justify-between"><span className="text-muted">Max Drawdown</span><span className="font-mono text-rose-500">${botStats.max_drawdown_usd.toFixed(2)}</span></div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'edit' && (
+        <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-5 max-w-md">
+          <h2 className="text-xs font-semibold text-muted uppercase tracking-wider mb-4">Edit Bot</h2>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs text-muted mb-1">Name</label>
+              <input value={editName} onChange={(e) => setEditName(e.target.value)}
+                className="w-full px-3 py-2 bg-surface-elevated-dark border border-hairline-on-dark rounded text-sm text-body focus:outline-none focus:border-primary" />
+            </div>
+            <div>
+              <label className="block text-xs text-muted mb-1">Symbol</label>
+              <input value={editSymbol} onChange={(e) => setEditSymbol(e.target.value)}
+                className="w-full px-3 py-2 bg-surface-elevated-dark border border-hairline-on-dark rounded text-sm text-body focus:outline-none focus:border-primary" />
+            </div>
+            <div>
+              <label className="block text-xs text-muted mb-1">Timeframe</label>
+              <select value={editTf} onChange={(e) => setEditTf(e.target.value)}
+                className="w-full px-3 py-2 bg-surface-elevated-dark border border-hairline-on-dark rounded text-sm text-body focus:outline-none focus:border-primary">
+                <option value="M1">M1</option>
+                <option value="M5">M5</option>
+                <option value="M15">M15</option>
+                <option value="H1">H1</option>
+              </select>
+            </div>
+            <button onClick={saveEdit}
+              className="px-4 py-2 text-xs rounded bg-primary/10 text-primary border border-primary/50 cursor-pointer">Save Changes</button>
           </div>
         </div>
       )}

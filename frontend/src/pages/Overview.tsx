@@ -1,21 +1,29 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import client from '../api/client'
 import { useWebSocket } from '../api/ws'
-import type { AppState, Trade } from '../types/api'
+import type { AppState, Trade, Bot, CompareBot } from '../types/api'
 
 export default function Overview() {
   const [state, setState] = useState<AppState | null>(null)
   const [trades, setTrades] = useState<Trade[]>([])
+  const [bots, setBots] = useState<Bot[]>([])
+  const [compare, setCompare] = useState<CompareBot[]>([])
   const [loading, setLoading] = useState(true)
+  const navigate = useNavigate()
 
   const fetchData = useCallback(async () => {
     try {
-      const [stateRes, tradesRes] = await Promise.all([
+      const [stateRes, tradesRes, botsRes, compareRes] = await Promise.all([
         client.get<AppState>('/state'),
         client.get<Trade[]>('/trades', { params: { limit: 12 } }),
+        client.get<Bot[]>('/bots'),
+        client.get<CompareBot[]>('/compare'),
       ])
       setState(stateRes.data)
       setTrades(tradesRes.data)
+      setBots(botsRes.data)
+      setCompare(compareRes.data)
     } catch {
       // ignore
     } finally {
@@ -25,7 +33,7 @@ export default function Overview() {
 
   useEffect(() => {
     fetchData()
-    const interval = setInterval(fetchData, 2000)
+    const interval = setInterval(fetchData, 3000)
     return () => clearInterval(interval)
   }, [fetchData])
 
@@ -45,6 +53,13 @@ export default function Overview() {
   const paper = state?.paper
   const health = state?.health
   const exec = state?.execution
+
+  const activeBots = compare.filter((b) => b.closed_trades > 0 || b.open_positions > 0)
+  const enabledBots = bots.filter((b) => b.enabled)
+  const totalPnl = compare.reduce((s, b) => s + (b.net_pnl ?? 0), 0)
+  const totalTrades = compare.reduce((s, b) => s + (b.closed_trades ?? 0), 0)
+  const totalWins = compare.reduce((s, b) => s + (b.wins ?? 0), 0)
+  const fleetWinRate = totalTrades > 0 ? ((totalWins / totalTrades) * 100).toFixed(1) : '—'
 
   return (
     <div className="p-6 space-y-6">
@@ -91,6 +106,13 @@ export default function Overview() {
         />
       </div>
 
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card label="Total Bots" value={String(bots.length)} accent="primary" />
+        <Card label="Active Bots" value={String(enabledBots.length)} accent="trading-up" />
+        <Card label="Fleet PnL" value={`${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`} accent={totalPnl >= 0 ? 'trading-up' : 'trading-down'} />
+        <Card label="Win Rate" value={fleetWinRate !== '—' ? `${fleetWinRate}%` : '—'} accent={parseFloat(fleetWinRate) >= 50 ? 'trading-up' : 'trading-down'} />
+      </div>
+
       {paper?.open_position && (
         <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-4">
           <h2 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Open Position</h2>
@@ -115,6 +137,31 @@ export default function Overview() {
                 {paper.open_position.stop_loss?.toFixed(2) ?? '—'} / {paper.open_position.take_profit?.toFixed(2) ?? '—'}
               </p>
             </div>
+          </div>
+        </div>
+      )}
+
+      {compare.length > 0 && (
+        <div>
+          <h2 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Bot Fleet</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {compare.map((b) => (
+              <div key={b.bot_id}
+                className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-4 hover:bg-surface-elevated-dark/30 cursor-pointer transition-colors"
+                onClick={() => navigate(`/bots/${b.bot_id}`)}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold text-body">{b.name}</span>
+                  <span className={`text-xs font-mono ${(b.net_pnl ?? 0) >= 0 ? 'text-trading-up' : 'text-trading-down'}`}>
+                    {(b.net_pnl ?? 0) >= 0 ? '+' : ''}${(b.net_pnl ?? 0).toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 text-xs text-muted">
+                  <span>{b.symbol} {b.timeframe}</span>
+                  <span>{b.closed_trades} trades</span>
+                  <span>{b.win_rate != null ? `${(b.win_rate).toFixed(0)}%` : '—'}</span>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

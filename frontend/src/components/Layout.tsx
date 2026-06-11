@@ -31,7 +31,7 @@ export default function Layout() {
         <div className="flex items-center gap-2 h-13 px-4 border-b border-hairline-on-dark shrink-0">
           {!collapsed && (
             <span className="font-sans text-xs tracking-widest text-primary font-bold uppercase">
-              BINANCE
+              PAPER TRADING
             </span>
           )}
           <button

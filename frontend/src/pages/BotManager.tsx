@@ -7,12 +7,20 @@ import BotForm from '../components/BotForm'
 
 const log = (...args: unknown[]) => console.log('[BotManager]', ...args)
 
+interface EditBotState {
+  bot: Bot
+  name: string
+  symbol: string
+  timeframe: string
+}
+
 export default function BotManager() {
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [bots, setBots] = useState<Bot[]>([])
   const [loading, setLoading] = useState(true)
   const [showProfileForm, setShowProfileForm] = useState(false)
   const [showBotForm, setShowBotForm] = useState(false)
+  const [editBot, setEditBot] = useState<EditBotState | null>(null)
   const navigate = useNavigate()
 
   const fetchData = useCallback(async () => {
@@ -52,6 +60,17 @@ export default function BotManager() {
     await client.delete(`/bots/${botId}`)
     fetchData()
   }, [fetchData])
+
+  const saveEdit = useCallback(async () => {
+    if (!editBot) return
+    await client.put(`/bots/${editBot.bot.id}`, {
+      name: editBot.name,
+      symbol: editBot.symbol,
+      timeframe: editBot.timeframe,
+    })
+    setEditBot(null)
+    fetchData()
+  }, [editBot, fetchData])
 
   useEffect(() => {
     fetchData()
@@ -124,6 +143,8 @@ export default function BotManager() {
                       <span className="text-xs font-mono text-muted">{bot.symbol} {bot.timeframe}</span>
                     </div>
                     <div className="flex items-center gap-2">
+                      <button onClick={(e) => { e.stopPropagation(); setEditBot({ bot, name: bot.name, symbol: bot.symbol, timeframe: bot.timeframe }) }}
+                        className="px-2 py-1 text-xs text-primary border border-primary/50 rounded bg-primary/10 cursor-pointer">Edit</button>
                       <button onClick={(e) => deleteBot(bot.id, e)}
                         className="px-2 py-1 text-xs text-rose-500 border border-rose-500/50 rounded bg-rose-500/10 cursor-pointer">Del</button>
                       <button onClick={(e) => { e.stopPropagation(); toggleBot(bot.id, !!bot.enabled) }}
@@ -148,6 +169,42 @@ export default function BotManager() {
       {profiles.length === 0 && (
         <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-8 text-center">
           <p className="text-sm text-muted">No profiles found. Create one.</p>
+        </div>
+      )}
+
+      {editBot && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setEditBot(null)}>
+          <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-5 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-sm font-semibold text-body mb-4">Edit Bot</h2>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-muted mb-1">Name</label>
+                <input value={editBot.name} onChange={(e) => setEditBot({ ...editBot, name: e.target.value })}
+                  className="w-full px-3 py-2 bg-surface-elevated-dark border border-hairline-on-dark rounded text-sm text-body focus:outline-none focus:border-primary" />
+              </div>
+              <div>
+                <label className="block text-xs text-muted mb-1">Symbol</label>
+                <input value={editBot.symbol} onChange={(e) => setEditBot({ ...editBot, symbol: e.target.value })}
+                  className="w-full px-3 py-2 bg-surface-elevated-dark border border-hairline-on-dark rounded text-sm text-body focus:outline-none focus:border-primary" />
+              </div>
+              <div>
+                <label className="block text-xs text-muted mb-1">Timeframe</label>
+                <select value={editBot.timeframe} onChange={(e) => setEditBot({ ...editBot, timeframe: e.target.value })}
+                  className="w-full px-3 py-2 bg-surface-elevated-dark border border-hairline-on-dark rounded text-sm text-body focus:outline-none focus:border-primary">
+                  <option value="M1">M1</option>
+                  <option value="M5">M5</option>
+                  <option value="M15">M15</option>
+                  <option value="H1">H1</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-5">
+              <button onClick={() => setEditBot(null)}
+                className="px-3 py-1.5 text-xs rounded bg-surface-elevated-dark text-muted border border-hairline-on-dark cursor-pointer">Cancel</button>
+              <button onClick={saveEdit}
+                className="px-3 py-1.5 text-xs rounded bg-primary/10 text-primary border border-primary/50 cursor-pointer">Save</button>
+            </div>
+          </div>
         </div>
       )}
     </div>

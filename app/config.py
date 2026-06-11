@@ -18,7 +18,6 @@ class Settings:
     initial_balance: float = float(os.getenv("INITIAL_BALANCE", "500.0"))
     max_spread: float = float(os.getenv("MAX_SPREAD", "1.5"))
     stale_tick_seconds: int = int(os.getenv("STALE_TICK_SECONDS", "10"))
-    strategy_enabled: bool = _bool("STRATEGY_ENABLED", "false")
     swing_window: int = int(os.getenv("SWING_WINDOW", "3"))
     structure_scan_limit: int = int(os.getenv("STRUCTURE_SCAN_LIMIT", "1200"))
     ob_lookback: int = int(os.getenv("OB_LOOKBACK", "12"))
@@ -40,7 +39,6 @@ class Settings:
     lot_step: float = float(os.getenv("LOT_STEP", "0.01"))
     min_lot: float = float(os.getenv("MIN_LOT", "0.01"))
     max_lot: float = float(os.getenv("MAX_LOT", "10.0"))
-    api_key: str = os.getenv("API_KEY", "")
     dashboard_username: str = os.getenv("DASHBOARD_USERNAME", "admin")
     dashboard_password: str = os.getenv("DASHBOARD_PASSWORD", "admin")
 

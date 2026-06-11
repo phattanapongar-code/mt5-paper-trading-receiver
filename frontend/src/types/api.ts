@@ -254,6 +254,8 @@ export interface CompareBot {
   profile_name: string
   strategy_type: string
   strategy_version: string
+  symbol: string
+  timeframe: string
   initial_balance: number
   balance: number
   realized_pnl: number

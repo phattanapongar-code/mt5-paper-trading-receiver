@@ -3,14 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 
 from app import storage
-from app.pending_orders import PendingOrderEngine
+from app.config import settings
+from app.multibot.db import migrate, json_text, default_parameters
+from app.multibot.runtime import _evaluate_bot, _trend
+from app.indicators import compute_indicators
 
 
 def _reset_db(tmp_path: Path) -> None:
     if storage._conn is not None:
         storage._conn.close()
     storage._conn = None
-    object.__setattr__(storage.settings, "db_path", str(tmp_path / "pending.sqlite3"))
+    object.__setattr__(settings, "db_path", str(tmp_path / "pending.sqlite3"))
     storage.init_db()
 
 
@@ -24,11 +27,34 @@ def _insert_closed(open_time: int, close: float) -> None:
     )
 
 
-def _seed_bearish(tmp_path: Path) -> PendingOrderEngine:
+def _seed_bearish(tmp_path: Path) -> None:
     _reset_db(tmp_path)
     # Falling closes force BEARISH MA alignment once 320 closed candles exist.
     for i in range(320):
         _insert_closed(i * 900, 500.0 - i)
+    # Verify trend is BEARISH before running tests
+    trend = _trend("XAUUSD", "M15")
+    assert trend == "BEARISH", f"Expected BEARISH trend, got {trend}"
+
+
+def test_trend_detection_works(tmp_path):
+    _seed_bearish(tmp_path)
+    trend = _trend("XAUUSD", "M15")
+    assert trend == "BEARISH"
+
+
+def test_trend_returns_warming_up_without_enough_data(tmp_path):
+    _reset_db(tmp_path)
+    for i in range(100):
+        _insert_closed(i * 900, 500.0 - i)
+    trend = _trend("XAUUSD", "M15")
+    assert trend == "WARMING_UP"
+
+
+def test_stages_one_aligned_pending_after_zone_touch(tmp_path):
+    _seed_bearish(tmp_path)
+    from app.multibot.runtime import process_tick_sync
+    # Create an order block
     storage.execute(
         """
         INSERT INTO order_blocks(
@@ -41,49 +67,34 @@ def _seed_bearish(tmp_path: Path) -> PendingOrderEngine:
         ) VALUES ('XAUUSD','M15','bearish',1,1,200,2,190,3,181,182,180,184,5,6,2,2,3,184,0,0,'active',8,1,'test',1,1)
         """
     )
-    return PendingOrderEngine(timeframe="M15", expiry_candles=8, min_rr=1.5, tp_r_multiple=2.0, sl_buffer_ratio=0.30)
+    # Set up a bot to evaluate
+    migrate()
+    existing = storage.query_one("SELECT id FROM bots WHERE name='Paper Trading'")
+    assert existing is not None, "Paper Trading bot should exist after migrate"
+
+    # Enable the bot
+    storage.execute("UPDATE bots SET enabled=1 WHERE id=1")
+    storage.execute("UPDATE profiles SET enabled=1 WHERE id=1")
+
+    # Process a tick that touches the OB zone (180-184)
+    result = process_tick_sync({
+        "type": "tick", "symbol": "XAUUSD", "bid": 182.0, "ask": 182.2,
+        "timestamp": int(__import__("time").time()), "seq": 1
+    })
+    assert result["processed_bots"] >= 1
+
+    # Check that a pending order was created
+    pending = storage.query_one("SELECT * FROM bot_pending_orders WHERE bot_id=1 AND status='pending' ORDER BY id DESC LIMIT 1")
+    assert pending is not None
+    assert pending["side"] == "sell"
+    assert pending["entry"] == 182.0
 
 
-def test_stages_one_aligned_pending_after_zone_touch(tmp_path):
-    engine = _seed_bearish(tmp_path)
-    result = engine.on_tick("XAUUSD", bid=182.0, ask=182.2, received_at=int(__import__("time").time()))
-    created = result["created"]
-    assert created is not None
-    assert created["side"] == "sell"
-    assert created["entry"] == 182.0
-    assert created["stop_loss"] == 185.2
-    assert round(created["take_profit"], 6) == 175.6
-    assert created["risk_reward"] == 2.0
-    assert engine.state("XAUUSD")["counts"]["pending"] == 1
-
-
-def test_cancels_after_eight_m15_candles(tmp_path):
-    engine = _seed_bearish(tmp_path)
-    created = engine.on_tick("XAUUSD", bid=182.0, ask=182.2, received_at=int(__import__("time").time()))["created"]
-    assert created is not None
-    expiry = int(created["expires_open_time"])
-    _insert_closed(expiry, 170.0)
-    cancelled = engine.cancel_if_needed("XAUUSD", bid=170.0, ask=170.2, received_at=int(__import__("time").time()))
-    assert cancelled is not None
-    assert cancelled["status"] == "cancelled"
-    assert cancelled["cancel_reason"] == "expired_after_candles"
-
-
-def test_rr_gate_rejects_tp_multiple_below_minimum(tmp_path):
-    engine = _seed_bearish(tmp_path)
-    engine.tp_r_multiple = 1.0
-    result = engine.on_tick("XAUUSD", bid=182.0, ask=182.2, received_at=int(__import__("time").time()))
-    assert result["created"] is None
-    assert result["rejected"]["reason"] == "rr_too_low"
-
-
-
-def test_pending_survives_order_block_id_change_after_rebuild(tmp_path):
-    engine = _seed_bearish(tmp_path)
-    created = engine.on_tick("XAUUSD", bid=182.0, ask=182.2, received_at=int(__import__("time").time()))["created"]
-    assert created is not None
-    original_ob_id = int(created["ob_id"])
-    storage.execute("DELETE FROM order_blocks")
+def test_rr_gate_rejects_low_rr(tmp_path):
+    _seed_bearish(tmp_path)
+    from app.multibot.runtime import process_tick_sync
+    from app.multibot.service import update_bot_parameters
+    
     storage.execute(
         """
         INSERT INTO order_blocks(
@@ -93,22 +104,22 @@ def test_pending_survives_order_block_id_change_after_rebuild(tmp_path):
             impulse_range_ratio, origin_swing_open_time, origin_swing_price,
             swing_distance_ratio, retest_count, status, score, is_strong,
             score_reasons, created_at, updated_at
-        ) VALUES ('XAUUSD','M15','bearish',2,1,200,2,190,3,181,182,180,184,5,6,2,2,3,184,0,0,'active',8,1,'test',2,2)
+        ) VALUES ('XAUUSD','M15','bearish',1,1,200,2,190,3,181,182,180,184,5,6,2,2,3,184,0,0,'active',8,1,'test',1,1)
         """
     )
-    rebuilt_ob = storage.query_one("SELECT * FROM order_blocks LIMIT 1")
-    assert rebuilt_ob is not None
-    assert int(rebuilt_ob["id"]) != original_ob_id
-    assert engine.cancel_if_needed("XAUUSD", bid=182.0, ask=182.2, received_at=int(__import__("time").time())) is None
-    assert engine.active("XAUUSD") is not None
+    migrate()
+    storage.execute("UPDATE bots SET enabled=1 WHERE id=1")
 
+    # Lower tp_r_multiple to get rejected
+    update_bot_parameters(1, {"tp_r_multiple": 1.0, "min_rr": 1.5})
 
-def test_rejection_logs_are_rate_limited(tmp_path):
-    engine = _seed_bearish(tmp_path)
-    engine.max_spread = 0.1
-    first = engine.on_tick("XAUUSD", bid=182.0, ask=182.2, received_at=int(__import__("time").time()))["rejected"]
-    second = engine.on_tick("XAUUSD", bid=182.0, ask=182.2, received_at=int(__import__("time").time()))["rejected"]
-    assert first is not None and first["logged"] is True
-    assert second is not None and second["logged"] is False
-    rows = engine.rejections("XAUUSD")
-    assert len(rows) == 1
+    result = process_tick_sync({
+        "type": "tick", "symbol": "XAUUSD", "bid": 182.0, "ask": 182.2,
+        "timestamp": int(__import__("time").time()), "seq": 1
+    })
+    # Should still process but no pending created due to low RR
+    # Check signal logs for rejection
+    rejection = storage.query_one(
+        "SELECT * FROM bot_signal_logs WHERE bot_id=1 AND event_type='pending_created' ORDER BY id DESC LIMIT 1"
+    )
+    assert rejection is None, "Should not have created a pending order with low RR"

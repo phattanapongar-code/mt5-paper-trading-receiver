@@ -3,12 +3,13 @@ from __future__ import annotations
 import asyncio
 import json
 import math
-import threading
 import time
 from datetime import datetime, timezone
 from typing import Any
 
-from app.multibot.db import connect, default_parameters, json_text, table_exists, columns
+from app import storage
+from app.indicators import compute_indicators
+from app.multibot.db import default_parameters, json_text
 
 
 def _params(raw: str | None) -> dict[str, Any]:
@@ -27,54 +28,45 @@ def _log(conn, bot_id: int, event_type: str, message: str, payload: dict[str, An
     )
 
 
-def _trend(conn, symbol: str, timeframe: str) -> str:
-    if not table_exists(conn, "candles"):
+def _trend(symbol: str, timeframe: str) -> str:
+    if not storage.table_exists("candles"):
         return "WARMING_UP"
-    cols = columns(conn, "candles")
-    closed_filter = "AND is_closed=1" if "is_closed" in cols else ""
-    rows = conn.execute(
-        f"SELECT close FROM candles WHERE symbol=? AND timeframe=? {closed_filter} ORDER BY open_time DESC LIMIT 300",
+    rows = storage.query_all(
+        "SELECT close FROM candles WHERE symbol=? AND timeframe=? AND is_closed=1 ORDER BY open_time DESC LIMIT 300",
         (symbol, timeframe),
-    ).fetchall()
-    closes = [float(r["close"]) for r in reversed(rows)]
-    if len(closes) < 300:
+    )
+    if not rows:
         return "WARMING_UP"
-    ma60 = sum(closes[-60:]) / 60
-    ma80 = sum(closes[-80:]) / 80
-    ma300 = sum(closes[-300:]) / 300
-    if ma60 > ma80 > ma300:
-        return "BULLISH"
-    if ma60 < ma80 < ma300:
-        return "BEARISH"
-    return "NEUTRAL"
+    closes = list(reversed(rows))
+    result = compute_indicators(closes)
+    return str(result["trend"])
 
 
-def _m5_confirmed(conn, symbol: str, side: str) -> bool:
-    if not table_exists(conn, "bos_events"):
+def _m5_confirmed(symbol: str, side: str) -> bool:
+    if not storage.table_exists("bos_events"):
         return True
-    row = conn.execute("SELECT side FROM bos_events WHERE symbol=? AND timeframe='M5' ORDER BY break_open_time DESC LIMIT 1", (symbol,)).fetchone()
+    row = storage.query_one("SELECT side FROM bos_events WHERE symbol=? AND timeframe='M5' ORDER BY break_open_time DESC LIMIT 1", (symbol,))
     return row is not None and str(row["side"]).lower() == side.lower()
 
 
-def _latest_ob(conn, symbol: str, timeframe: str, min_score: int, allow_tested_once: bool) -> dict[str, Any] | None:
-    if not table_exists(conn, "order_blocks"):
+def _latest_ob(symbol: str, timeframe: str, min_score: int, allow_tested_once: bool) -> dict[str, Any] | None:
+    if not storage.table_exists("order_blocks"):
         return None
-    cols = columns(conn, "order_blocks")
+    ob_cols = storage.columns("order_blocks")
     required = {"symbol", "timeframe", "side", "ob_low", "ob_high", "status", "score", "is_strong"}
-    if not required.issubset(cols):
+    if not required.issubset(ob_cols):
         return None
     statuses = ["active"] + (["tested_once"] if allow_tested_once else [])
     placeholders = ",".join("?" for _ in statuses)
-    order_col = "break_open_time" if "break_open_time" in cols else "id"
-    row = conn.execute(
+    order_col = "break_open_time" if "break_open_time" in ob_cols else "id"
+    return storage.query_one(
         f"""
         SELECT * FROM order_blocks
         WHERE symbol=? AND timeframe=? AND is_strong=1 AND score>=? AND status IN ({placeholders})
         ORDER BY {order_col} DESC, id DESC LIMIT 1
         """,
         (symbol, timeframe, min_score, *statuses),
-    ).fetchone()
-    return dict(row) if row else None
+    )
 
 
 def _stable_ob_key(ob: dict[str, Any]) -> str:
@@ -91,8 +83,9 @@ def _round_lot(value: float, step: float, minimum: float, maximum: float) -> flo
 def _close_position(conn, position: dict[str, Any], exit_price: float, reason: str, now: int) -> None:
     side = str(position["side"]).lower()
     direction = 1.0 if side == "buy" else -1.0
-    pnl = (exit_price - float(position["entry"])) * direction * float(position["lot"]) * 100.0
-    risk = abs(float(position["entry"]) - float(position["stop_loss"] or position["entry"])) * float(position["lot"]) * 100.0
+    contract_size = float(_params(None)["contract_size"])
+    pnl = (exit_price - float(position["entry"])) * direction * float(position["lot"]) * contract_size
+    risk = abs(float(position["entry"]) - float(position["stop_loss"] or position["entry"])) * float(position["lot"]) * contract_size
     r_multiple = pnl / risk if risk > 0 else 0.0
     conn.execute(
         "UPDATE bot_positions SET status='closed',closed_at=?,exit_price=?,pnl=?,r_multiple=?,exit_reason=?,updated_at=? WHERE id=?",
@@ -127,7 +120,7 @@ def _evaluate_bot(conn, bot: dict[str, Any], tick: dict[str, Any], now: int) -> 
     bid, ask = float(tick["bid"]), float(tick["ask"])
     mid = (bid + ask) / 2
     spread = ask - bid
-    trend = _trend(conn, bot["symbol"], bot["timeframe"])
+    trend = _trend(bot["symbol"], bot["timeframe"])
     day = datetime.now(timezone.utc).date().isoformat()
     conn.execute("INSERT OR IGNORE INTO bot_runtime_state(bot_id,updated_at) VALUES(?,?)", (bot_id, now))
     state = conn.execute("SELECT * FROM bot_runtime_state WHERE bot_id=?", (bot_id,)).fetchone()
@@ -185,13 +178,13 @@ def _evaluate_bot(conn, bot: dict[str, Any], tick: dict[str, Any], now: int) -> 
         conn.execute("UPDATE bot_runtime_state SET paused_reason='max_consecutive_losses',updated_at=? WHERE bot_id=?", (now, bot_id))
         return
 
-    ob = _latest_ob(conn, bot["symbol"], bot["timeframe"], int(params["ob_strong_score"]), bool(params.get("allow_tested_once", True)))
+    ob = _latest_ob(bot["symbol"], bot["timeframe"], int(params["ob_strong_score"]), bool(params.get("allow_tested_once", True)))
     if not ob:
         return
     side = str(ob["side"]).lower()
     if (side == "bullish" and trend != "BULLISH") or (side == "bearish" and trend != "BEARISH"):
         return
-    if params.get("require_m5_confirmation") and not _m5_confirmed(conn, bot["symbol"], side):
+    if params.get("require_m5_confirmation") and not _m5_confirmed(bot["symbol"], side):
         return
     low, high = float(ob["ob_low"]), float(ob["ob_high"])
     if not (low <= mid <= high):
@@ -234,9 +227,8 @@ def _evaluate_bot(conn, bot: dict[str, Any], tick: dict[str, Any], now: int) -> 
 
 def process_tick_sync(tick: dict[str, Any]) -> dict[str, Any]:
     now = int(time.time())
-    conn = connect()
     processed = 0
-    try:
+    with storage.transaction() as conn:
         rows = conn.execute(
             """
             SELECT b.*,w.id AS wallet_id,w.balance,w.initial_balance
@@ -249,10 +241,7 @@ def process_tick_sync(tick: dict[str, Any]) -> dict[str, Any]:
         for row in rows:
             _evaluate_bot(conn, dict(row), tick, now)
             processed += 1
-        conn.commit()
-        return {"ok": True, "processed_bots": processed, "tick": tick}
-    finally:
-        conn.close()
+    return {"ok": True, "processed_bots": processed, "tick": tick}
 
 
 class RuntimeHub:

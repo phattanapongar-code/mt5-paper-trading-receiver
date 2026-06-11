@@ -6,11 +6,15 @@ from typing import Any
 from app import storage
 
 
+def _closed_trades() -> list[dict[str, Any]]:
+    return storage.query_all("SELECT * FROM bot_positions WHERE bot_id=1 AND status='closed' ORDER BY closed_at ASC, id ASC")
+
+
 class StatsEngine:
     def summary(self) -> dict[str, Any]:
-        closed = storage.query_all("SELECT * FROM trades WHERE status = 'closed' ORDER BY closed_at ASC, id ASC")
+        closed = _closed_trades()
         pnls = [float(t.get("pnl") or 0.0) for t in closed]
-        rs = [float(t.get("r_multiple") or 0.0) for t in closed]
+        rs = [float(t.get("r_multiple") or 0.0) for t in closed if t.get("r_multiple") is not None]
         wins = [p for p in pnls if p > 0]
         losses = [p for p in pnls if p < 0]
         equity = 0.0
@@ -22,7 +26,7 @@ class StatsEngine:
             max_drawdown = max(max_drawdown, peak - equity)
         gross_profit = sum(wins)
         gross_loss = abs(sum(losses))
-        account = storage.query_one("SELECT * FROM paper_account WHERE id = 1") or {}
+        wallet = storage.query_one("SELECT * FROM wallets WHERE bot_id=1") or {}
         return {
             "closed_trades": len(closed),
             "wins": len(wins),
@@ -36,13 +40,13 @@ class StatsEngine:
             "average_pnl": (sum(pnls) / len(pnls)) if pnls else 0.0,
             "average_r": (sum(rs) / len(rs)) if rs else 0.0,
             "max_drawdown_usd": max_drawdown,
-            "balance": float(account.get("balance") or 0.0),
-            "realized_pnl": float(account.get("realized_pnl") or 0.0),
+            "balance": float(wallet.get("balance") or 0.0),
+            "realized_pnl": float(wallet.get("realized_pnl") or 0.0),
         }
 
     def equity_curve(self) -> list[tuple[int, float]]:
         closed = storage.query_all(
-            "SELECT closed_at, pnl FROM trades WHERE status = 'closed' AND closed_at IS NOT NULL ORDER BY closed_at ASC, id ASC"
+            "SELECT closed_at, pnl FROM bot_positions WHERE bot_id=1 AND status='closed' AND closed_at IS NOT NULL ORDER BY closed_at ASC, id ASC"
         )
         result: list[tuple[int, float]] = []
         cum = 0.0
@@ -53,7 +57,7 @@ class StatsEngine:
 
     def pnl_by_day(self) -> list[tuple[int, float]]:
         closed = storage.query_all(
-            "SELECT closed_at, pnl FROM trades WHERE status = 'closed' AND closed_at IS NOT NULL ORDER BY closed_at ASC"
+            "SELECT closed_at, pnl FROM bot_positions WHERE bot_id=1 AND status='closed' AND closed_at IS NOT NULL ORDER BY closed_at ASC"
         )
         daily: dict[str, float] = {}
         for row in closed:

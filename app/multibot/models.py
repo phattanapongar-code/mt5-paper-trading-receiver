@@ -25,3 +25,13 @@ class WalletResetRequest(BaseModel):
 
 class BotParameterUpdate(BaseModel):
     parameters: dict[str, Any]
+
+class RenameBotRequest(BaseModel):
+    name: str
+
+class UpdateBotRequest(BaseModel):
+    name: str | None = None
+    symbol: str | None = None
+    timeframe: str | None = None
+    enabled: bool | None = None
+    initial_balance: float | None = None

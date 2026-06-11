@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createChart, ColorType, type IChartApi, type ISeriesApi, type CandlestickData, type LineData, type UTCTimestamp, CandlestickSeries, LineSeries } from 'lightweight-charts'
 import client from '../api/client'
-import type { Candle, Indicators } from '../types/api'
+import type { Candle, Indicators, OrderBlock, MarketStructureState, PendingOrder } from '../types/api'
 
 const TIMEFRAMES = ['M1', 'M5', 'M15', 'H1'] as const
 type TF = (typeof TIMEFRAMES)[number]
@@ -17,25 +17,34 @@ export default function Charts() {
   const [timeframe, setTimeframe] = useState<TF>('M15')
   const [candles, setCandles] = useState<Candle[]>([])
   const [indicators, setIndicators] = useState<Indicators | null>(null)
+  const [obs, setObs] = useState<OrderBlock[]>([])
+  const [structure, setStructure] = useState<MarketStructureState | null>(null)
+  const [pending, setPending] = useState<PendingOrder | null>(null)
 
-  const fetchCandles = useCallback(async (tf: TF) => {
+  const fetchData = useCallback(async (tf: TF) => {
     try {
-      const [candleRes, indRes] = await Promise.all([
+      const [candleRes, indRes, obRes, structRes, pendingRes] = await Promise.all([
         client.get<Candle[]>(`/candles/${tf}`, { params: { limit: 200, closed_only: false } }),
         client.get<Indicators>(`/indicators/${tf}`),
+        client.get<OrderBlock[]>(`/order-blocks/active/${tf}`, { params: { limit: 10 } }),
+        client.get<MarketStructureState>(`/market-structure/${tf}`),
+        client.get<{ active: PendingOrder | null }>('/pending-orders/state'),
       ])
       setCandles(candleRes.data)
       setIndicators(indRes.data)
+      setObs(obRes.data)
+      setStructure(structRes.data)
+      setPending(pendingRes.data.active)
     } catch {
       // ignore
     }
   }, [])
 
   useEffect(() => {
-    fetchCandles(timeframe)
-    const interval = setInterval(() => fetchCandles(timeframe), 5000)
+    fetchData(timeframe)
+    const interval = setInterval(() => fetchData(timeframe), 5000)
     return () => clearInterval(interval)
-  }, [timeframe, fetchCandles])
+  }, [timeframe, fetchData])
 
   useEffect(() => {
     if (!chartRef.current) return
@@ -114,7 +123,8 @@ export default function Charts() {
   }, [])
 
   useEffect(() => {
-    if (!candleSeriesRef.current) return
+    const series = candleSeriesRef.current
+    if (!series) return
 
     const candleData: CandlestickData[] = candles
       .filter((c) => c.open_time && c.close)
@@ -127,7 +137,7 @@ export default function Charts() {
       }))
       .sort((a, b) => Number(a.time) - Number(b.time))
 
-    candleSeriesRef.current.setData(candleData)
+    series.setData(candleData)
 
     if (ma60SeriesRef.current && indicators?.ma60 != null) {
       const lineData: LineData[] = candles
@@ -150,7 +160,51 @@ export default function Charts() {
         .sort((a, b) => Number(a.time) - Number(b.time))
       ma300SeriesRef.current.setData(lineData)
     }
-  }, [candles, indicators])
+
+    // clear old price lines
+    const chart = chartApiRef.current
+    if (chart) {
+      const existing = (series as any).priceLines?.() ?? []
+      for (const pl of existing) {
+        try { (series as any).removePriceLine(pl) } catch {}
+      }
+    }
+
+    // OB zones: horizontal lines at ob_high and ob_low
+    for (const ob of obs) {
+      const obColor = ob.side === 'buy' ? '#0ecb81' : '#f6465d'
+      series.createPriceLine({ price: ob.ob_high, color: obColor, lineStyle: 2, lineWidth: 1, axisLabelVisible: true, title: `${ob.side.toUpperCase()} OB` })
+      series.createPriceLine({ price: ob.ob_low, color: obColor, lineStyle: 2, lineWidth: 1, axisLabelVisible: false })
+    }
+
+    // Swing high/low lines
+    if (structure?.latest_swing_high?.price) {
+      series.createPriceLine({ price: structure.latest_swing_high.price, color: '#FCD535', lineStyle: 3, lineWidth: 1, axisLabelVisible: true, title: 'SW H' })
+    }
+    if (structure?.latest_swing_low?.price) {
+      series.createPriceLine({ price: structure.latest_swing_low.price, color: '#FCD535', lineStyle: 3, lineWidth: 1, axisLabelVisible: true, title: 'SW L' })
+    }
+
+    // Pending order lines
+    if (pending) {
+      const pendColor = pending.side === 'buy' ? '#0ecb81' : '#f6465d'
+      series.createPriceLine({ price: pending.entry, color: pendColor, lineStyle: 0, lineWidth: 2, axisLabelVisible: true, title: `PEND ${pending.side.toUpperCase()}` })
+      series.createPriceLine({ price: pending.stop_loss, color: '#f6465d', lineStyle: 1, lineWidth: 1, axisLabelVisible: true, title: 'PEND SL' })
+      series.createPriceLine({ price: pending.take_profit, color: '#0ecb81', lineStyle: 1, lineWidth: 1, axisLabelVisible: true, title: 'PEND TP' })
+    }
+
+    // Swing point markers
+    const markers: { time: UTCTimestamp; position: 'aboveBar' | 'belowBar'; color: string; shape: 'arrowUp' | 'arrowDown'; text: string }[] = []
+    if (structure?.latest_swing_high?.pivot_open_time) {
+      markers.push({ time: structure.latest_swing_high.pivot_open_time as UTCTimestamp, position: 'belowBar', color: '#FCD535', shape: 'arrowDown', text: 'H' })
+    }
+    if (structure?.latest_swing_low?.pivot_open_time) {
+      markers.push({ time: structure.latest_swing_low.pivot_open_time as UTCTimestamp, position: 'aboveBar', color: '#FCD535', shape: 'arrowUp', text: 'L' })
+    }
+    if (markers.length) {
+      series.setMarkers(markers)
+    }
+  }, [candles, indicators, obs, structure, pending])
 
   return (
     <div className="p-6 space-y-4">
@@ -186,6 +240,17 @@ export default function Charts() {
             value={indicators.trend ?? '—'}
             color={indicators.trend === 'BULLISH' ? '#0ecb81' : indicators.trend === 'BEARISH' ? '#f6465d' : '#eaecef'}
           />
+        </div>
+      )}
+
+      {obs.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {obs.map((ob) => (
+            <span key={ob.id} className={`text-xs px-2 py-1 rounded ${ob.side === 'buy' ? 'bg-trading-up/10 text-trading-up' : 'bg-trading-down/10 text-trading-down'} border ${ob.side === 'buy' ? 'border-trading-up/30' : 'border-trading-down/30'}`}>
+              {ob.side.toUpperCase()} OB {ob.score}pts {ob.is_strong ? '★' : ''}
+            </span>
+          ))}
+          <span className="text-xs text-muted self-center">{obs.length} active OBs</span>
         </div>
       )}
     </div>

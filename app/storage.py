@@ -26,6 +26,36 @@ def get_conn() -> sqlite3.Connection:
         return _conn
 
 
+def table_exists(table: str) -> bool:
+    conn = get_conn()
+    with _lock:
+        return conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone() is not None
+
+
+def columns(table: str) -> set[str]:
+    conn = get_conn()
+    with _lock:
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
+            return set()
+        return {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def add_column(table: str, declaration: str) -> None:
+    name = declaration.split()[0]
+    if name not in columns(table):
+        conn = get_conn()
+        with _lock:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {declaration}")
+            conn.commit()
+
+
+def executescript(script: str) -> None:
+    conn = get_conn()
+    with _lock:
+        conn.executescript(script)
+        conn.commit()
+
+
 def _column_names(conn: sqlite3.Connection, table: str) -> set[str]:
     return {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
 
@@ -81,6 +111,13 @@ def init_db() -> None:
                 rebuilt_m5 INTEGER NOT NULL,
                 rebuilt_m15 INTEGER NOT NULL,
                 rebuilt_h1 INTEGER NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS replay_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL,
+                payload TEXT NOT NULL,
                 created_at INTEGER NOT NULL
             );
 
@@ -222,12 +259,6 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_pending_orders_ob_stable
                 ON pending_orders(symbol, timeframe, ob_side, ob_break_open_time, id DESC);
 
-            CREATE TABLE IF NOT EXISTS replay_runs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                symbol TEXT NOT NULL,
-                payload TEXT NOT NULL,
-                created_at INTEGER NOT NULL
-            );
             """
         )
         # Safe additive migrations: old SQLite data remains valid across patches.

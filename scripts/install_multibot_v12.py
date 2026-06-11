@@ -55,8 +55,9 @@ def patch_main() -> str:
 
 def migrate_db() -> dict:
     sys.path.insert(0, str(ROOT))
-    from app.multibot.db import DB_PATH, migrate
-    db_path = ROOT / DB_PATH
+    from app.config import settings
+    from app.multibot.db import migrate
+    db_path = ROOT / settings.db_path
     if db_path.exists():
         backup(db_path)
     return migrate()

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import client from '../api/client'
 import type { Trade, Stats } from '../types/api'
 
@@ -6,11 +6,13 @@ export default function TradeHistory() {
   const [trades, setTrades] = useState<Trade[]>([])
   const [stats, setStats] = useState<Stats | null>(null)
   const [loading, setLoading] = useState(true)
+  const [sideFilter, setSideFilter] = useState('all')
+  const [dateFilter, setDateFilter] = useState('all')
 
   const fetchData = useCallback(async () => {
     try {
       const [tradesRes, statsRes] = await Promise.all([
-        client.get<Trade[]>('/trades', { params: { limit: 200 } }),
+        client.get<Trade[]>('/trades', { params: { limit: 500 } }),
         client.get<Stats>('/stats'),
       ])
       setTrades(tradesRes.data)
@@ -26,6 +28,24 @@ export default function TradeHistory() {
     fetchData()
   }, [fetchData])
 
+  const filteredTrades = useMemo(() => {
+    let filtered = trades
+
+    if (sideFilter !== 'all') {
+      filtered = filtered.filter((t) => t.side === sideFilter)
+    }
+
+    if (dateFilter !== 'all') {
+      const now = Date.now() / 1000
+      const cutoff = dateFilter === 'today' ? now - 86400 : dateFilter === '7d' ? now - 7 * 86400 : dateFilter === '30d' ? now - 30 * 86400 : 0
+      if (cutoff > 0) {
+        filtered = filtered.filter((t) => (t.closed_at ?? t.opened_at) >= cutoff)
+      }
+    }
+
+    return filtered.sort((a, b) => (b.closed_at ?? b.opened_at) - (a.closed_at ?? a.opened_at))
+  }, [trades, sideFilter, dateFilter])
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -36,7 +56,25 @@ export default function TradeHistory() {
 
   return (
     <div className="p-6 space-y-6">
-      <h1 className="text-lg font-semibold text-body">Trade History</h1>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <h1 className="text-lg font-semibold text-body">Trade History</h1>
+        <div className="flex gap-2">
+          <select value={sideFilter} onChange={(e) => setSideFilter(e.target.value)}
+            className="px-2 py-1.5 text-xs bg-surface-elevated-dark border border-hairline-on-dark rounded text-body focus:outline-none focus:border-primary">
+            <option value="all">All Sides</option>
+            <option value="buy">Buy</option>
+            <option value="sell">Sell</option>
+          </select>
+          <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)}
+            className="px-2 py-1.5 text-xs bg-surface-elevated-dark border border-hairline-on-dark rounded text-body focus:outline-none focus:border-primary">
+            <option value="all">All Time</option>
+            <option value="today">Today</option>
+            <option value="7d">7 Days</option>
+            <option value="30d">30 Days</option>
+          </select>
+          <span className="text-xs text-muted font-mono self-center">{filteredTrades.length} trades</span>
+        </div>
+      </div>
 
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -51,7 +89,7 @@ export default function TradeHistory() {
         </div>
       )}
 
-      {trades.length > 0 ? (
+      {filteredTrades.length > 0 ? (
         <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg overflow-hidden">
           <table className="w-full text-sm">
             <thead>
@@ -68,7 +106,7 @@ export default function TradeHistory() {
               </tr>
             </thead>
             <tbody>
-              {trades.map((t) => (
+              {filteredTrades.map((t) => (
                 <tr key={t.id} className="border-b border-surface-elevated-dark hover:bg-surface-card-dark/50">
                   <td className="p-3 font-mono text-xs">{t.id}</td>
                   <td className="p-3">
@@ -96,7 +134,7 @@ export default function TradeHistory() {
         </div>
       ) : (
         <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-8 text-center">
-          <p className="text-sm text-muted">No trades yet</p>
+          <p className="text-sm text-muted">No trades match the selected filters</p>
         </div>
       )}
     </div>

@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.multibot import db, service
 from app.multibot.dashboard import HTML
-from app.multibot.models import BotCreate, BotParameterUpdate, CloneBotRequest, ProfileCreate, WalletResetRequest
+from app.multibot.models import BotCreate, BotParameterUpdate, CloneBotRequest, ProfileCreate, RenameBotRequest, UpdateBotRequest, WalletResetRequest
 from app.multibot.runtime import hub
 
 router = APIRouter(tags=["multi-bot"])
@@ -14,7 +14,7 @@ db.migrate()
 
 @router.get("/api/multibot/migration/status")
 def migration_status():
-    return db.status()
+    return db.get_status()
 
 
 @router.get("/api/multibot/runtime/status")
@@ -133,6 +133,25 @@ def disable_bot(bot_id: int):
 @router.put("/api/bots/{bot_id}/parameters")
 def update_parameters(bot_id: int, payload: BotParameterUpdate):
     result = service.update_bot_parameters(bot_id, payload.parameters)
+    if result is None:
+        raise HTTPException(404, "bot not found")
+    return result
+
+
+@router.put("/api/bots/{bot_id}/rename")
+def rename_bot(bot_id: int, payload: RenameBotRequest):
+    result = service.rename_bot(bot_id, payload.name)
+    if result is None:
+        raise HTTPException(404, "bot not found")
+    return result
+
+
+@router.put("/api/bots/{bot_id}")
+def update_bot(bot_id: int, payload: UpdateBotRequest):
+    kwargs = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not kwargs:
+        raise HTTPException(400, "no fields to update")
+    result = service.update_bot(bot_id, **kwargs)
     if result is None:
         raise HTTPException(404, "bot not found")
     return result
