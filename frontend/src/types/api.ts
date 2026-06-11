@@ -172,8 +172,16 @@ export interface Bot {
   symbol: string
   timeframe: string
   enabled: boolean
-  parameters_json: string
+  parameters: Record<string, unknown>
   created_at: number
+}
+
+export interface BotStats {
+  closed_trades: number
+  wins: number
+  losses: number
+  net_pnl: number
+  max_drawdown_usd: number
 }
 
 export interface BotState {
@@ -211,11 +219,15 @@ export interface CompareResult {
 
 export interface BotSignalLog {
   id: number
-  bot_id: number
+  symbol?: string
+  timeframe?: string
+  bot_id?: number
   event_type: string
   message: string
-  payload_json: string | null
+  payload_json?: string | null
+  payload?: string
   created_at: number
+  ts?: number
 }
 
 export interface BotCreateRequest {
@@ -259,4 +271,38 @@ export interface ReplayRun {
   symbol: string
   payload: string
   created_at: number
+}
+
+export interface HistoryCandle {
+  open_time: number
+  open: number
+  high: number
+  low: number
+  close: number
+  tick_volume?: number
+}
+
+export interface HistoryImportRequest {
+  symbol: string
+  timeframe: 'M1' | 'M5' | 'M15' | 'H1'
+  source: string
+  offset_seconds: number
+  candles: HistoryCandle[]
+}
+
+export interface HistoryStatus {
+  symbol: string
+  closed_candles: Record<string, number>
+  latest_import: {
+    id: number
+    symbol: string
+    source: string
+    timeframe: string
+    offset_seconds: number
+    imported_m1?: number
+    rebuilt_m5: number
+    rebuilt_m15: number
+    rebuilt_h1: number
+    created_at: number
+  } | null
 }

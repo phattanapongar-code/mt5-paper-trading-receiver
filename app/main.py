@@ -16,7 +16,7 @@ from app.config import settings
 from app.models import CloseOrderRequest, HistoryImportRequest, OpenOrderRequest, ResetRequest, TickPayload
 from app.market_structure import MarketStructureEngine
 from app.order_blocks import OrderBlockEngine
-from app.pending_orders import PendingOrderEngine
+from app.pending_orders import PendingOrderEngine, set_bot_id
 from app.paper_engine import PaperEngine
 from app.execution import AutoPaperExecutionEngine
 from app.stats import StatsEngine
@@ -63,11 +63,13 @@ async def basic_auth_middleware(request: Request, call_next):
     return await call_next(request)
 
 storage.init_db()
+storage.cleanup_old_data()
 candles = CandleEngine()
 paper = PaperEngine()
 structure = MarketStructureEngine()
 order_blocks = OrderBlockEngine()
 pending_orders = PendingOrderEngine()
+set_bot_id(1)
 execution = AutoPaperExecutionEngine(paper, pending_orders)
 stats_engine = StatsEngine()
 replay_engine = ReplayEngine()
@@ -161,31 +163,35 @@ async def receive_price(payload: TickPayload) -> dict[str, Any]:
     }
 
 
-@app.post("/api/history/import/m1")
-def import_m1_history(req: HistoryImportRequest) -> dict[str, Any]:
+@app.post("/api/history/import")
+def import_history(req: HistoryImportRequest) -> dict[str, Any]:
     if req.symbol != settings.symbol:
         raise HTTPException(status_code=400, detail=f"Symbol mismatch: receiver expects {settings.symbol}")
-    summary = candles.import_m1_history(req.symbol, [c.model_dump() for c in req.candles])
+    
+    if req.timeframe not in TIMEFRAMES:
+        raise HTTPException(status_code=400, detail=f"Unsupported timeframe: {req.timeframe}")
+    
+    summary = candles.import_timeframe_history(req.symbol, req.timeframe, [c.model_dump() for c in req.candles])
     market_structure = structure.rebuild_all(req.symbol)
     order_block_summary = order_blocks.rebuild_all(req.symbol)
     created_at = int(time.time())
     storage.execute(
-        """
-        INSERT INTO history_imports(symbol, source, timeframe, offset_seconds, imported_m1, rebuilt_m5, rebuilt_m15, rebuilt_h1, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            req.symbol,
-            req.source,
-            req.timeframe,
-            req.offset_seconds,
-            summary["imported_m1"],
-            summary["rebuilt_m5"],
-            summary["rebuilt_m15"],
-            summary["rebuilt_h1"],
-            created_at,
-        ),
-    )
+            """
+            INSERT INTO history_imports(symbol, source, timeframe, offset_seconds, imported_m1, rebuilt_m5, rebuilt_m15, rebuilt_h1, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                req.symbol,
+                req.source,
+                req.timeframe,
+                req.offset_seconds,
+                summary.get("imported") or summary.get("imported_m1"),
+                summary["rebuilt_m5"],
+                summary["rebuilt_m15"],
+                summary["rebuilt_h1"],
+                created_at,
+            ),
+        )
     return {
         "ok": True, "symbol": req.symbol, "created_at": created_at, **summary,
         "market_structure": market_structure, "order_blocks": order_block_summary,
@@ -440,7 +446,8 @@ def stats_pnl_by_day() -> list[tuple[int, float]]:
 
 @app.get("/api/signal-logs")
 def signal_logs(limit: int = 100) -> list[dict[str, Any]]:
-    return storage.query_all("SELECT * FROM signal_logs ORDER BY id DESC LIMIT ?", (max(1, min(limit, 1000)),))
+    rows = storage.query_all("SELECT * FROM signal_logs ORDER BY id DESC LIMIT ?", (max(1, min(limit, 1000)),))
+    return [{**row, "created_at": row["ts"], "bot_id": row.get("bot_id", 1)} for row in rows]
 
 
 @app.post("/api/replay/run")

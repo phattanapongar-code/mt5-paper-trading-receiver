@@ -130,6 +130,55 @@ class CandleEngine:
         rebuilt = self.rebuild_from_m1(symbol)
         return {"imported_m1": len(normalized), **rebuilt}
 
+    def import_timeframe_history(self, symbol: str, timeframe: str, rows: Iterable[dict[str, Any]]) -> dict[str, int]:
+        """Import candles directly for M5/M15/H1 (no rebuild needed)."""
+        if timeframe not in TIMEFRAMES:
+            raise ValueError(f"Unsupported timeframe: {timeframe}")
+        if timeframe == "M1":
+            return self.import_m1_history(symbol, rows)
+
+        now = int(time.time())
+        seconds = TIMEFRAMES[timeframe]
+        normalized: list[tuple[Any, ...]] = []
+
+        for row in rows:
+            open_time = self._bucket(int(row["open_time"]), seconds)
+            normalized.append(
+                (
+                    symbol,
+                    timeframe,
+                    open_time,
+                    open_time + seconds,
+                    float(row["open"]),
+                    float(row["high"]),
+                    float(row["low"]),
+                    float(row["close"]),
+                    int(row.get("tick_count", 0)),
+                    1,
+                    now,
+                )
+            )
+
+        with storage.transaction() as conn:
+            conn.executemany(
+                """
+                INSERT INTO candles(symbol, timeframe, open_time, close_time, open, high, low, close, tick_count, is_closed, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(symbol, timeframe, open_time) DO UPDATE SET
+                    close_time = excluded.close_time,
+                    open = excluded.open,
+                    high = excluded.high,
+                    low = excluded.low,
+                    close = excluded.close,
+                    tick_count = excluded.tick_count,
+                    is_closed = 1,
+                    updated_at = excluded.updated_at
+                """,
+                normalized,
+            )
+
+        return {"imported": len(normalized), "rebuilt_m5": 0, "rebuilt_m15": 0, "rebuilt_h1": 0}
+
     def rebuild_from_m1(self, symbol: str) -> dict[str, int]:
         m1_rows = storage.query_all(
             """

@@ -16,20 +16,20 @@ export default function Performance() {
     chart.current = createChart(chartRef.current, {
       width: chartRef.current.clientWidth,
       height: 400,
-      layout: { background: { color: '#13161a' }, textColor: '#7c8894' },
-      grid: { vertLines: { color: '#1e2329' }, horzLines: { color: '#1e2329' } },
-      crosshair: { vertLine: { color: '#2a9d8f' }, horzLine: { color: '#2a9d8f' } },
-      timeScale: { borderColor: '#2a3342' },
-      rightPriceScale: { borderColor: '#2a3342' },
+      layout: { background: { color: '#1e2329' }, textColor: '#eaecef' },
+      grid: { vertLines: { color: '#2b3139' }, horzLines: { color: '#2b3139' } },
+      crosshair: { vertLine: { color: '#2b3139' }, horzLine: { color: '#2b3139' } },
+      timeScale: { borderColor: '#2b3139' },
+      rightPriceScale: { borderColor: '#2b3139' },
     })
 
     equitySeries.current = chart.current.addSeries(LineSeries, {
-      color: '#2a9d8f', lineWidth: 2, crosshairMarkerVisible: true,
+      color: '#FCD535', lineWidth: 2, crosshairMarkerVisible: true,
       priceFormat: { type: 'custom', formatter: (v: number) => v.toFixed(2) },
     })
 
     pnlSeries.current = chart.current.addSeries(HistogramSeries, {
-      color: '#26a69a', priceFormat: { type: 'volume' },
+      color: '#0ecb81', priceFormat: { type: 'volume' },
       priceScaleId: 'pnl',
     })
 
@@ -80,7 +80,7 @@ export default function Performance() {
       if (pnlData.length && pnlSeries.current) {
         const histData: HistogramData[] = pnlData
           .filter(([t]) => t > 0)
-          .map(([t, v]) => ({ time: t as any, value: v, color: v >= 0 ? '#2a9d8f' : '#ef4444' }))
+          .map(([t, v]) => ({ time: t as any, value: v, color: v >= 0 ? '#0ecb81' : '#f6465d' }))
         if (histData.length) pnlSeries.current.setData(histData)
       }
 
@@ -97,9 +97,9 @@ export default function Performance() {
 
   return (
     <div className="p-6 space-y-4">
-      <h1 className="text-sm font-semibold text-text-primary">Performance Charts</h1>
-      {loading && <div className="text-text-muted text-xs">Loading...</div>}
-      {error && <div className="text-text-muted text-xs">{error}</div>}
+      <h1 className="text-sm font-semibold text-body">Performance Charts</h1>
+      {loading && <div className="text-muted text-xs">Loading...</div>}
+      {error && <div className="text-muted text-xs">{error}</div>}
       <div ref={chartRef} className="w-full" />
     </div>
   )

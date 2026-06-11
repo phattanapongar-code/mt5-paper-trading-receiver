@@ -46,64 +46,64 @@ export default function Wallets() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="animate-pulse text-text-muted text-sm font-mono">Loading...</div>
+        <div className="animate-pulse text-muted text-sm font-mono">Loading...</div>
       </div>
     )
   }
 
   return (
     <div className="p-6 space-y-6">
-      <h1 className="text-lg font-semibold text-text-primary">Wallets</h1>
+      <h1 className="text-lg font-semibold text-body">Wallets</h1>
 
       {wallets.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {wallets.map((w) => (
-            <div key={w.id} className="bg-surface-800 border border-surface-500 rounded-lg p-4">
+            <div key={w.id} className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-4">
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-sm font-semibold text-text-primary">{w.botName ?? `Bot #${w.bot_id!}`}</h2>
+                <h2 className="text-sm font-semibold text-body">{w.botName ?? `Bot #${w.bot_id!}`}</h2>
                 <button
                   onClick={() => resetWallet(w.bot_id!)}
-                  className="px-2 py-1 text-xs rounded bg-surface-700 text-text-muted hover:text-text-primary border border-surface-500 transition-colors cursor-pointer"
+                  className="px-2 py-1 text-xs rounded bg-surface-elevated-dark text-muted hover:text-body border border-hairline-on-dark transition-colors cursor-pointer"
                 >
                   Reset
                 </button>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <p className="text-xs text-text-muted">Balance</p>
-                  <p className="font-mono text-sm text-cyber-cyan font-semibold">${w.balance.toFixed(2)}</p>
+                  <p className="text-xs text-muted">Balance</p>
+                  <p className="font-mono text-sm text-primary font-semibold">${w.balance.toFixed(2)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-text-muted">Realized PnL</p>
-                  <p className={`font-mono text-sm font-semibold ${w.realized_pnl >= 0 ? 'text-cyber-green' : 'text-cyber-red'}`}>
+                  <p className="text-xs text-muted">Realized PnL</p>
+                  <p className={`font-mono text-sm font-semibold ${w.realized_pnl >= 0 ? 'text-trading-up' : 'text-trading-down'}`}>
                     {w.realized_pnl >= 0 ? '+' : ''}${w.realized_pnl.toFixed(2)}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-text-muted">Initial</p>
-                  <p className="font-mono text-sm text-text-primary">${w.initial_balance.toFixed(2)}</p>
+                  <p className="text-xs text-muted">Initial</p>
+                  <p className="font-mono text-sm text-body">${w.initial_balance.toFixed(2)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-text-muted">Drawdown</p>
-                  <p className={`font-mono text-sm ${w.max_drawdown > 0 ? 'text-cyber-red' : 'text-cyber-green'}`}>
+                  <p className="text-xs text-muted">Drawdown</p>
+                  <p className={`font-mono text-sm ${w.max_drawdown > 0 ? 'text-trading-down' : 'text-trading-up'}`}>
                     {(w.max_drawdown * 100).toFixed(1)}%
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-text-muted">Peak Equity</p>
-                  <p className="font-mono text-sm text-text-primary">${w.peak_equity.toFixed(2)}</p>
+                  <p className="text-xs text-muted">Peak Equity</p>
+                  <p className="font-mono text-sm text-body">${w.peak_equity.toFixed(2)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-text-muted">Currency</p>
-                  <p className="font-mono text-sm text-text-primary">{w.currency}</p>
+                  <p className="text-xs text-muted">Currency</p>
+                  <p className="font-mono text-sm text-body">{w.currency}</p>
                 </div>
               </div>
             </div>
           ))}
         </div>
       ) : (
-        <div className="bg-surface-800 border border-surface-500 rounded-lg p-8 text-center">
-          <p className="text-sm text-text-muted">No wallets found</p>
+        <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-8 text-center">
+          <p className="text-sm text-muted">No wallets found</p>
         </div>
       )}
     </div>

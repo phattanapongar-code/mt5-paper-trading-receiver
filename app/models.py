@@ -37,9 +37,12 @@ class HistoryCandle(BaseModel):
         return self
 
 
+from typing import Union
+
+
 class HistoryImportRequest(BaseModel):
     symbol: str = Field(default="XAUUSD")
-    timeframe: Literal["M1"] = "M1"
+    timeframe: Union[Literal["M1", "M5", "M15", "H1"]] = "M1"
     source: str = Field(default="mt5_windows", max_length=100)
     offset_seconds: int = 0
     candles: list[HistoryCandle] = Field(min_length=1, max_length=5000)

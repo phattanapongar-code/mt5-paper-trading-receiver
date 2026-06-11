@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Sequence
@@ -48,6 +49,7 @@ def init_db() -> None:
                 source_ts INTEGER
             );
 
+            CREATE INDEX IF NOT EXISTS idx_ticks_ts ON ticks(ts DESC);
             CREATE INDEX IF NOT EXISTS idx_ticks_symbol_ts ON ticks(symbol, ts DESC);
 
             CREATE TABLE IF NOT EXISTS candles (
@@ -82,6 +84,8 @@ def init_db() -> None:
                 created_at INTEGER NOT NULL
             );
 
+            CREATE INDEX IF NOT EXISTS idx_replay_runs_created_at ON replay_runs(created_at DESC);
+
             CREATE TABLE IF NOT EXISTS paper_account (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 balance REAL NOT NULL,
@@ -114,6 +118,8 @@ def init_db() -> None:
                 payload TEXT,
                 ts INTEGER NOT NULL
             );
+
+            CREATE INDEX IF NOT EXISTS idx_signal_logs_ts ON signal_logs(ts DESC);
 
             CREATE TABLE IF NOT EXISTS swing_points (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -247,6 +253,8 @@ def init_db() -> None:
         }.items():
             if name not in pending_columns:
                 conn.execute(f"ALTER TABLE pending_orders ADD COLUMN {name} {sql_type}")
+        if "bot_id" not in _column_names(conn, "signal_logs"):
+            conn.execute("ALTER TABLE signal_logs ADD COLUMN bot_id INTEGER")
         cur = conn.execute("SELECT id FROM paper_account WHERE id = 1")
         if cur.fetchone() is None:
             import time
@@ -255,6 +263,32 @@ def init_db() -> None:
                 (settings.initial_balance, int(time.time())),
             )
         conn.commit()
+
+
+def cleanup_old_data(max_tick_days: int = 7, max_signal_days: int = 30, max_replay_days: int = 7) -> dict[str, int]:
+    """Startup TTL cleanup — prune ticks, signal_logs, replay_runs older than N days.
+
+    Runs synchronously at boot so the database never grows unbounded even
+    when the receiver is started infrequently.
+    """
+    now = int(time.time())
+    tick_cutoff = now - max_tick_days * 86400
+    signal_cutoff = now - max_signal_days * 86400
+    replay_cutoff = now - max_replay_days * 86400
+
+    deleted_ticks = execute("DELETE FROM ticks WHERE ts < ?", (tick_cutoff,)).rowcount
+    deleted_signals = execute("DELETE FROM signal_logs WHERE ts < ?", (signal_cutoff,)).rowcount
+    deleted_replays = execute("DELETE FROM replay_runs WHERE created_at < ?", (replay_cutoff,)).rowcount
+
+    total = deleted_ticks + deleted_signals + deleted_replays
+    if total:
+        get_conn().execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+    return {
+        "deleted_ticks": deleted_ticks,
+        "deleted_signal_logs": deleted_signals,
+        "deleted_replay_runs": deleted_replays,
+    }
 
 
 @contextmanager

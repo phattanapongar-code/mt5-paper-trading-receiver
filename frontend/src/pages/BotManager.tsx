@@ -62,7 +62,7 @@ export default function BotManager() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="animate-pulse text-text-muted text-sm font-mono">Loading...</div>
+        <div className="animate-pulse text-muted text-sm font-mono">Loading...</div>
       </div>
     )
   }
@@ -70,11 +70,11 @@ export default function BotManager() {
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-text-primary">Bot Manager</h1>
+        <h1 className="text-lg font-semibold text-body">Bot Manager</h1>
         <div className="flex gap-2">
-          <button onClick={() => setShowBotForm(true)} className="px-3 py-1.5 text-xs bg-cyber-cyan/20 text-cyber-cyan border border-cyber-cyan/50 rounded cursor-pointer">+ Bot</button>
-          <button onClick={() => setShowProfileForm(true)} className="px-3 py-1.5 text-xs bg-cyber-yellow/20 text-cyber-yellow border border-cyber-yellow/50 rounded cursor-pointer">+ Profile</button>
-          <span className="text-xs text-text-muted font-mono self-center ml-2">{bots.length} bots · {profiles.length} profiles</span>
+          <button onClick={() => setShowBotForm(true)} className="px-3 py-1.5 text-xs bg-primary/10 text-primary border border-primary/50 rounded cursor-pointer">+ Bot</button>
+          <button onClick={() => setShowProfileForm(true)} className="px-3 py-1.5 text-xs bg-primary/10 text-primary border border-primary/50 rounded cursor-pointer">+ Profile</button>
+          <span className="text-xs text-muted font-mono self-center ml-2">{bots.length} bots · {profiles.length} profiles</span>
         </div>
       </div>
 
@@ -84,19 +84,19 @@ export default function BotManager() {
       {profiles.map((profile) => {
         const profileBots = bots.filter((b) => b.profile_id === profile.id)
         return (
-          <div key={profile.id} className="bg-surface-800 border border-surface-500 rounded-lg overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 bg-surface-700/50 border-b border-surface-500">
+          <div key={profile.id} className="bg-surface-card-dark border border-hairline-on-dark rounded-lg overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 bg-surface-elevated-dark/50 border-b border-hairline-on-dark">
               <div>
-                <span className="text-sm font-semibold text-text-primary">{profile.name}</span>
+                <span className="text-sm font-semibold text-body">{profile.name}</span>
                 {profile.description && (
-                  <span className="text-xs text-text-muted ml-2">{profile.description}</span>
+                  <span className="text-xs text-muted ml-2">{profile.description}</span>
                 )}
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-xs text-text-muted font-mono">
+                <span className="text-xs text-muted font-mono">
                   ${profile.total_balance?.toFixed(2) ?? '0.00'}
                 </span>
-                <span className={`text-xs font-mono ${(profile.total_realized_pnl ?? 0) >= 0 ? 'text-cyber-green' : 'text-cyber-red'}`}>
+                <span className={`text-xs font-mono ${(profile.total_realized_pnl ?? 0) >= 0 ? 'text-trading-up' : 'text-trading-down'}`}>
                   {(profile.total_realized_pnl ?? 0) >= 0 ? '+' : ''}${profile.total_realized_pnl?.toFixed(2) ?? '0.00'}
                 </span>
                 <button onClick={() => deleteProfile(profile.id)}
@@ -104,8 +104,8 @@ export default function BotManager() {
                 <button onClick={() => toggleProfile(profile.id, !!profile.enabled)}
                   className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-colors cursor-pointer ${
                     profile.enabled
-                      ? 'bg-cyber-green/20 text-cyber-green border border-cyber-green/50'
-                      : 'bg-surface-600 text-text-muted border border-surface-400'
+                      ? 'bg-trading-up/10 text-trading-up border border-trading-up/50'
+                      : 'bg-surface-elevated-dark text-muted border border-surface-400'
                   }`}>
                   {profile.enabled ? 'ENABLED' : 'DISABLED'}
                 </button>
@@ -113,15 +113,15 @@ export default function BotManager() {
             </div>
 
             {profileBots.length > 0 ? (
-              <div className="divide-y divide-surface-600">
+              <div className="divide-y divide-surface-elevated-dark">
                 {profileBots.map((bot) => (
                   <div key={bot.id}
-                    className="flex items-center justify-between px-4 py-3 hover:bg-surface-700/30 cursor-pointer transition-colors"
+                    className="flex items-center justify-between px-4 py-3 hover:bg-surface-elevated-dark/30 cursor-pointer transition-colors"
                     onClick={() => navigate(`/bots/${bot.id}`)}>
                     <div className="flex items-center gap-3">
-                      <span className="text-sm text-text-primary">{bot.name}</span>
-                      <span className="text-xs font-mono text-text-muted">{bot.strategy_type} v{bot.strategy_version}</span>
-                      <span className="text-xs font-mono text-text-muted">{bot.symbol} {bot.timeframe}</span>
+                      <span className="text-sm text-body">{bot.name}</span>
+                      <span className="text-xs font-mono text-muted">{bot.strategy_type} v{bot.strategy_version}</span>
+                      <span className="text-xs font-mono text-muted">{bot.symbol} {bot.timeframe}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <button onClick={(e) => deleteBot(bot.id, e)}
@@ -129,8 +129,8 @@ export default function BotManager() {
                       <button onClick={(e) => { e.stopPropagation(); toggleBot(bot.id, !!bot.enabled) }}
                         className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-colors cursor-pointer ${
                           bot.enabled
-                            ? 'bg-cyber-green/20 text-cyber-green border border-cyber-green/50'
-                            : 'bg-surface-600 text-text-muted border border-surface-400'
+                            ? 'bg-trading-up/10 text-trading-up border border-trading-up/50'
+                            : 'bg-surface-elevated-dark text-muted border border-surface-400'
                         }`}>
                         {bot.enabled ? 'ON' : 'OFF'}
                       </button>
@@ -139,15 +139,15 @@ export default function BotManager() {
                 ))}
               </div>
             ) : (
-              <div className="px-4 py-6 text-center text-sm text-text-muted">No bots in this profile</div>
+              <div className="px-4 py-6 text-center text-sm text-muted">No bots in this profile</div>
             )}
           </div>
         )
       })}
 
       {profiles.length === 0 && (
-        <div className="bg-surface-800 border border-surface-500 rounded-lg p-8 text-center">
-          <p className="text-sm text-text-muted">No profiles found. Create one.</p>
+        <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-8 text-center">
+          <p className="text-sm text-muted">No profiles found. Create one.</p>
         </div>
       )}
     </div>

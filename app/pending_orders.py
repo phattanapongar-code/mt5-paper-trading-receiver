@@ -8,6 +8,17 @@ from app import storage
 from app.candle_engine import CandleEngine, TIMEFRAMES
 from app.config import settings
 
+_bot_id: int | None = None
+
+
+def set_bot_id(bot_id: int) -> None:
+    global _bot_id
+    _bot_id = bot_id
+
+
+def get_bot_id() -> int | None:
+    return _bot_id
+
 
 class PendingOrderEngine:
     """Create and supervise auditable M15 pending-order candidates.
@@ -81,7 +92,7 @@ class PendingOrderEngine:
             """,
             (reason, now, order_id),
         )
-        self._log(order["symbol"], order["timeframe"], "pending_cancelled", reason, {"order_id": order_id})
+        self._log(order["symbol"], order["timeframe"], "pending_cancelled", reason, {"order_id": order_id}, get_bot_id())
         row = self.by_id(order_id)
         if row is None:
             raise RuntimeError("Cancelled pending order disappeared")
@@ -228,7 +239,7 @@ class PendingOrderEngine:
                 ),
             )
             created = self.by_id(int(cur.lastrowid))
-            self._log(symbol, self.timeframe, "pending_created", "strong_ob_touched", created or {})
+            self._log(symbol, self.timeframe, "pending_created", "strong_ob_touched", created or {}, get_bot_id())
             return created, None
         return None, None
 
@@ -339,15 +350,15 @@ class PendingOrderEngine:
         )
         should_log = last is None or now - int(last["ts"]) >= self.rejection_log_cooldown
         if should_log:
-            self._log(symbol, self.timeframe, "pending_rejected", reason, event)
+            self._log(symbol, self.timeframe, "pending_rejected", reason, event, get_bot_id())
         return {**event, "logged": should_log}
 
     @staticmethod
-    def _log(symbol: str, timeframe: str, event_type: str, message: str, payload: dict[str, Any]) -> None:
+    def _log(symbol: str, timeframe: str, event_type: str, message: str, payload: dict[str, Any], bot_id: int | None = None) -> None:
         storage.execute(
             """
-            INSERT INTO signal_logs(symbol, timeframe, event_type, message, payload, ts)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO signal_logs(symbol, timeframe, event_type, message, payload, ts, bot_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (symbol, timeframe, event_type, message, json.dumps(payload, ensure_ascii=False), int(time.time())),
+            (symbol, timeframe, event_type, message, json.dumps(payload, ensure_ascii=False), int(time.time()), bot_id or _bot_id),
         )

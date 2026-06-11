@@ -1,35 +1,42 @@
 @import "tailwindcss";
 
 @theme {
-  --color-surface-900: #06060e;
-  --color-surface-800: #0a0a18;
-  --color-surface-700: #0f0f24;
-  --color-surface-600: #14142e;
-  --color-surface-500: #1a1a3e;
-  --color-surface-400: #222250;
-  --color-surface-300: #2a2a5a;
-  --color-surface-200: #3a3a6a;
-  --color-surface-100: #4a4a7a;
+  /* Binance Color System - Dark Mode (Marketing) */
+  --color-canvas-dark: #0b0e11;
+  --color-surface-card-dark: #1e2329;
+  --color-surface-elevated-dark: #2b3139;
 
-  --color-cyber-cyan: #00f0ff;
-  --color-cyber-green: #00ff88;
-  --color-cyber-red: #ff3355;
-  --color-cyber-magenta: #ff33cc;
-  --color-cyber-yellow: #ffcc00;
-  --color-cyber-purple: #8833ff;
+  /* Hairlines & Borders */
+  --color-hairline-on-dark: #2b3139;
+  --color-hairline-on-light: #eaecef;
+  --color-border-strong: #cdd1d6;
 
-  --color-text-primary: #e2e8f0;
-  --color-text-secondary: #94a3b8;
-  --color-text-muted: #64748b;
+  /* Text */
+  --color-body: #eaecef;
+  --color-body-on-light: #181a20;
+  --color-muted: #707a8a;
+  --color-muted-strong: #929aa5;
+  --color-on-primary: #181a20;
+  --color-on-dark: #ffffff;
 
-  --font-sans: 'Inter', system-ui, sans-serif;
+  /* Trading Semantics */
+  --color-trading-up: #0ecb81;
+  --color-trading-down: #f6465d;
+
+  /* Brand Accent - Binance Yellow */
+  --color-primary: #FCD535;
+  --color-primary-active: #f0b90b;
+  --color-primary-disabled: #3a3a1f;
+
+  /* Typography: BinanceNova substitute (Inter) + BinancePlex substitute (JetBrains Mono) */
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
 body {
   margin: 0;
-  background: var(--color-surface-900);
-  color: var(--color-text-primary);
+  background: var(--color-canvas-dark);
+  color: var(--color-body);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -40,12 +47,12 @@ body {
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--color-surface-800);
+  background: var(--color-surface-card-dark);
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--color-surface-400);
+  background: var(--color-surface-elevated-dark);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-surface-300);
+  background: var(--color-surface-card-dark);
 }

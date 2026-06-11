@@ -1,21 +1,30 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import Layout from './components/Layout'
-import Login from './pages/Login'
-import Overview from './pages/Overview'
-import Charts from './pages/Charts'
-import BotManager from './pages/BotManager'
-import BotDetail from './pages/BotDetail'
-import Compare from './pages/Compare'
-import Signals from './pages/Signals'
-import Performance from './pages/Performance'
-import TradeHistory from './pages/TradeHistory'
-import Wallets from './pages/Wallets'
-import MarketStructure from './pages/MarketStructure'
-import PendingOrders from './pages/PendingOrders'
-import Settings from './pages/Settings'
+import { lazy, Suspense } from 'react'
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
+const Login = lazy(() => import('./pages/Login'))
+const Overview = lazy(() => import('./pages/Overview'))
+const Charts = lazy(() => import('./pages/Charts'))
+const BotManager = lazy(() => import('./pages/BotManager'))
+const BotDetail = lazy(() => import('./pages/BotDetail'))
+const Compare = lazy(() => import('./pages/Compare'))
+const Signals = lazy(() => import('./pages/Signals'))
+const Performance = lazy(() => import('./pages/Performance'))
+const TradeHistory = lazy(() => import('./pages/TradeHistory'))
+const Trade = lazy(() => import('./pages/Trade'))
+const Wallets = lazy(() => import('./pages/Wallets'))
+const MarketStructure = lazy(() => import('./pages/MarketStructure'))
+const PendingOrders = lazy(() => import('./pages/PendingOrders'))
+const Settings = lazy(() => import('./pages/Settings'))
+
+const LoadingFallback = () => (
+  <div className="flex min-h-screen items-center justify-center bg-surface-900">
+    <div className="animate-pulse text-text-muted text-sm font-mono">Loading...</div>
+  </div>
+)
+
+function ProtectedRouteWrapper({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth()
   if (loading) {
     return (
@@ -43,13 +52,19 @@ function AppRoutes() {
     <Routes>
       <Route
         path="/login"
-        element={isAuthenticated ? <Navigate to="/" replace /> : <Login />}
+        element={
+          <Suspense fallback={<LoadingFallback />}>
+            {isAuthenticated ? <Navigate to="/" replace /> : <Login />}
+          </Suspense>
+        }
       />
       <Route
         element={
-          <ProtectedRoute>
-            <Layout />
-          </ProtectedRoute>
+          <Suspense fallback={<LoadingFallback />}>
+            <ProtectedRouteWrapper>
+              <Layout />
+            </ProtectedRouteWrapper>
+          </Suspense>
         }
       >
         <Route path="/" element={<Overview />} />
@@ -60,6 +75,7 @@ function AppRoutes() {
         <Route path="/signals" element={<Signals />} />
         <Route path="/performance" element={<Performance />} />
         <Route path="/trades" element={<TradeHistory />} />
+        <Route path="/trade" element={<Trade />} />
         <Route path="/wallets" element={<Wallets />} />
         <Route path="/market-structure" element={<MarketStructure />} />
         <Route path="/pending-orders" element={<PendingOrders />} />

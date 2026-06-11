@@ -7,7 +7,8 @@ const navItems = [
   { to: '/charts', label: 'Charts', icon: '▤' },
   { to: '/bots', label: 'Bots', icon: '◈' },
   { to: '/compare', label: 'Compare', icon: '⇄' },
-  { to: '/trades', label: 'Trades', icon: '≡' },
+  { to: '/trades', label: 'Trade History', icon: '≡' },
+  { to: '/trade', label: 'Manual Trade', icon: '▲' },
   { to: '/signals', label: 'Signals', icon: '⚡' },
   { to: '/performance', label: 'Performance', icon: '◐' },
   { to: '/wallets', label: 'Wallets', icon: '◐' },
@@ -23,19 +24,19 @@ export default function Layout() {
   return (
     <div className="flex h-screen overflow-hidden">
       <aside
-        className={`flex flex-col bg-surface-800 border-r border-surface-500 transition-all duration-200 ${
+        className={`flex flex-col bg-surface-card-dark border-r border-hairline-on-dark transition-all duration-200 ${
           collapsed ? 'w-16' : 'w-56'
         }`}
       >
-        <div className="flex items-center gap-2 h-13 px-4 border-b border-surface-500 shrink-0">
+        <div className="flex items-center gap-2 h-13 px-4 border-b border-hairline-on-dark shrink-0">
           {!collapsed && (
-            <span className="font-mono text-xs tracking-widest text-cyber-cyan font-semibold uppercase">
-              MT5 Dashboard
+            <span className="font-sans text-xs tracking-widest text-primary font-bold uppercase">
+              BINANCE
             </span>
           )}
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="ml-auto text-text-muted hover:text-text-primary cursor-pointer text-lg leading-none"
+            className="ml-auto text-muted hover:text-body cursor-pointer text-lg leading-none"
           >
             {collapsed ? '▸' : '◂'}
           </button>
@@ -50,8 +51,8 @@ export default function Layout() {
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors ${
                   isActive
-                    ? 'bg-cyber-cyan/10 text-cyber-cyan border-l-2 border-cyber-cyan'
-                    : 'text-text-secondary hover:bg-surface-600 hover:text-text-primary border-l-2 border-transparent'
+                    ? 'bg-primary/10 text-primary border-l-2 border-primary'
+                    : 'text-muted hover:bg-surface-card-dark hover:text-body border-l-2 border-transparent'
                 }`
               }
             >
@@ -61,10 +62,10 @@ export default function Layout() {
           ))}
         </nav>
 
-        <div className="p-3 border-t border-surface-500 shrink-0">
+        <div className="p-3 border-t border-hairline-on-dark shrink-0">
           <button
             onClick={logout}
-            className="flex items-center gap-3 w-full px-3 py-2.5 rounded-md text-sm text-text-muted hover:bg-surface-600 hover:text-cyber-red transition-colors cursor-pointer"
+            className="flex items-center gap-3 w-full px-3 py-2.5 rounded-md text-sm text-muted hover:bg-surface-card-dark hover:text-trading-down transition-colors cursor-pointer"
           >
             <span className="w-5 text-center shrink-0">↩</span>
             {!collapsed && <span>Logout</span>}
@@ -72,7 +73,7 @@ export default function Layout() {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-y-auto bg-surface-900">
+      <main className="flex-1 overflow-y-auto bg-canvas-dark">
         <Outlet />
       </main>
     </div>

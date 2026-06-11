@@ -42,53 +42,53 @@ export default function Charts() {
 
     const chart = createChart(chartRef.current, {
       layout: {
-        background: { type: ColorType.Solid, color: '#0a0a18' },
-        textColor: '#64748b',
+        background: { type: ColorType.Solid, color: '#1e2329' },
+        textColor: '#eaecef',
       },
       grid: {
-        vertLines: { color: '#1a1a3e' },
-        horzLines: { color: '#1a1a3e' },
+        vertLines: { color: '#2b3139' },
+        horzLines: { color: '#2b3139' },
       },
       crosshair: {
         mode: 0,
-        vertLine: { color: '#3a3a6a', width: 1, style: 2 },
-        horzLine: { color: '#3a3a6a', width: 1, style: 2 },
+        vertLine: { color: '#2b3139', width: 1, style: 2 },
+        horzLine: { color: '#2b3139', width: 1, style: 2 },
       },
       timeScale: {
-        borderColor: '#2a2a5a',
+        borderColor: '#2b3139',
         timeVisible: true,
         secondsVisible: false,
       },
       rightPriceScale: {
-        borderColor: '#2a2a5a',
+        borderColor: '#2b3139',
       },
       width: chartRef.current.clientWidth,
       height: 500,
     })
 
     const candlesSeries = chart.addSeries(CandlestickSeries, {
-      upColor: '#00ff88',
-      downColor: '#ff3355',
-      borderUpColor: '#00ff88',
-      borderDownColor: '#ff3355',
-      wickUpColor: '#00ff88',
-      wickDownColor: '#ff3355',
+      upColor: '#0ecb81',
+      downColor: '#f6465d',
+      borderUpColor: '#0ecb81',
+      borderDownColor: '#f6465d',
+      wickUpColor: '#0ecb81',
+      wickDownColor: '#f6465d',
     })
 
     const ma60 = chart.addSeries(LineSeries, {
-      color: '#00f0ff',
+      color: '#FCD535',
       lineWidth: 1,
       lastValueVisible: false,
       priceFormat: { type: 'custom' as const, formatter: (p: number) => p.toFixed(2) },
     })
     const ma80 = chart.addSeries(LineSeries, {
-      color: '#ffcc00',
+      color: '#FCD535',
       lineWidth: 1,
       lastValueVisible: false,
       priceFormat: { type: 'custom' as const, formatter: (p: number) => p.toFixed(2) },
     })
     const ma300 = chart.addSeries(LineSeries, {
-      color: '#8833ff',
+      color: '#FCD535',
       lineWidth: 1,
       lastValueVisible: false,
       priceFormat: { type: 'custom' as const, formatter: (p: number) => p.toFixed(2) },
@@ -155,7 +155,7 @@ export default function Charts() {
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-text-primary">Charts</h1>
+        <h1 className="text-lg font-semibold text-body">Charts</h1>
         <div className="flex gap-1">
           {TIMEFRAMES.map((tf) => (
             <button
@@ -163,8 +163,8 @@ export default function Charts() {
               onClick={() => setTimeframe(tf)}
               className={`px-3 py-1.5 text-xs font-mono font-semibold rounded-md transition-colors cursor-pointer ${
                 timeframe === tf
-                  ? 'bg-cyber-cyan/20 text-cyber-cyan border border-cyber-cyan/50'
-                  : 'bg-surface-800 text-text-muted border border-surface-500 hover:border-surface-300'
+                  ? 'bg-primary/10 text-primary border border-primary/50'
+                  : 'bg-surface-card-dark text-muted border border-hairline-on-dark hover:border-surface-elevated-dark'
               }`}
             >
               {tf}
@@ -173,18 +173,18 @@ export default function Charts() {
         </div>
       </div>
 
-      <div ref={chartRef} className="rounded-lg overflow-hidden border border-surface-500" />
+      <div ref={chartRef} className="rounded-lg overflow-hidden border border-hairline-on-dark" />
 
       {indicators && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <IndiCard label="MA60" value={indicators.ma60?.toFixed(2) ?? '—'} color="#00f0ff" />
-          <IndiCard label="MA80" value={indicators.ma80?.toFixed(2) ?? '—'} color="#ffcc00" />
-          <IndiCard label="MA300" value={indicators.ma300?.toFixed(2) ?? '—'} color="#8833ff" />
-          <IndiCard label="ATR14" value={indicators.atr14?.toFixed(2) ?? '—'} color="#ff33cc" />
+          <IndiCard label="MA60" value={indicators.ma60?.toFixed(2) ?? '—'} color="#FCD535" />
+          <IndiCard label="MA80" value={indicators.ma80?.toFixed(2) ?? '—'} color="#FCD535" />
+          <IndiCard label="MA300" value={indicators.ma300?.toFixed(2) ?? '—'} color="#FCD535" />
+          <IndiCard label="ATR14" value={indicators.atr14?.toFixed(2) ?? '—'} color="#FCD535" />
           <IndiCard
             label="Trend"
             value={indicators.trend ?? '—'}
-            color={indicators.trend === 'BULLISH' ? '#00ff88' : indicators.trend === 'BEARISH' ? '#ff3355' : '#64748b'}
+            color={indicators.trend === 'BULLISH' ? '#0ecb81' : indicators.trend === 'BEARISH' ? '#f6465d' : '#eaecef'}
           />
         </div>
       )}
@@ -194,8 +194,8 @@ export default function Charts() {
 
 function IndiCard({ label, value, color }: { label: string; value: string; color: string }) {
   return (
-    <div className="bg-surface-800 border border-surface-500 rounded-lg p-3">
-      <p className="text-xs text-text-muted mb-0.5">{label}</p>
+    <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-3">
+      <p className="text-xs text-muted mb-0.5">{label}</p>
       <p className="font-mono text-sm font-semibold" style={{ color }}>{value}</p>
     </div>
   )
