@@ -67,7 +67,7 @@ function ProtectedRouteWrapper({ children }: { children: React.ReactNode }) {
     )
   }
   if (!isAuthenticated) return <Navigate to="/login" replace />
-  return <>{children}</>
+  return <BotProvider>{children}</BotProvider>
 }
 
 function NotFoundPage() {
@@ -141,11 +141,9 @@ export default function App() {
       <BrowserRouter>
         <ThemeProvider>
           <AuthProvider>
-            <BotProvider>
-              <ToastProvider>
-                <AppRoutes />
-              </ToastProvider>
-            </BotProvider>
+            <ToastProvider>
+              <AppRoutes />
+            </ToastProvider>
           </AuthProvider>
         </ThemeProvider>
       </BrowserRouter>

@@ -474,6 +474,22 @@ def replay_latest() -> dict[str, Any] | None:
     return replay_engine.latest(settings.symbol)
 
 
+@app.get("/api/symbols")
+def get_symbols() -> dict[str, list[str]]:
+    rows = storage.query_all(
+        "SELECT DISTINCT symbol FROM candles WHERE symbol IS NOT NULL AND symbol != '' ORDER BY symbol"
+    )
+    if rows:
+        return {"symbols": [r["symbol"] for r in rows]}
+    rows = storage.query_all(
+        "SELECT DISTINCT symbol FROM ticks WHERE symbol IS NOT NULL AND symbol != '' ORDER BY symbol"
+    )
+    if rows:
+        return {"symbols": [r["symbol"] for r in rows]}
+    return {"symbols": ["XAUUSD", "BTCUSD", "ETHUSD", "EURUSD", "GBPUSD",
+                        "USDCAD", "USDJPY", "AUDUSD", "SPX500", "NAS100"]}
+
+
 @app.websocket("/ws/ticks")
 async def ws_ticks(ws: WebSocket) -> None:
     await ws.accept()
