@@ -1,8 +1,18 @@
 import { useEffect, useState, useRef, useMemo } from 'react'
 import client from '../api/client'
+import { useBotContext } from '../context/BotContext'
 import { createChart, LineSeries, HistogramSeries, type IChartApi, type ISeriesApi, type LineData, type HistogramData } from 'lightweight-charts'
+import PnLDistribution from '../components/PnLDistribution'
+
+interface PerfStats {
+  closed_trades: number; wins: number; losses: number
+  win_rate: number | null; profit_factor: number | null
+  net_pnl: number; max_drawdown_usd: number; average_r: number
+  balance: number; realized_pnl: number
+}
 
 export default function Performance() {
+  const { selectedBot } = useBotContext()
   const chartRef = useRef<HTMLDivElement>(null)
   const chart = useRef<IChartApi | null>(null)
   const equitySeries = useRef<ISeriesApi<'Line'> | null>(null)
@@ -11,12 +21,19 @@ export default function Performance() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [pnlByDay, setPnlByDay] = useState<[number, number][]>([])
+  const [stats, setStats] = useState<PerfStats | null>(null)
+
+  const botId = selectedBot?.id
 
   useEffect(() => {
-    if (!chartRef.current) return
+    setLoading(true)
+    setError(null)
 
-    chart.current = createChart(chartRef.current, {
-      width: chartRef.current.clientWidth,
+    const chartContainer = chartRef.current
+    if (!chartContainer) return
+
+    chart.current = createChart(chartContainer, {
+      width: chartContainer.clientWidth,
       height: 400,
       layout: { background: { color: '#1e2329' }, textColor: '#eaecef' },
       grid: { vertLines: { color: '#2b3139' }, horzLines: { color: '#2b3139' } },
@@ -59,19 +76,22 @@ export default function Performance() {
   }, [])
 
   useEffect(() => {
+    if (!botId) return
     let cancelled = false
     setLoading(true)
     setError(null)
 
     Promise.all([
-      client.get<[number, number][]>('/stats/equity'),
-      client.get<[number, number][]>('/stats/pnl-by-day'),
-    ]).then(([eqRes, pnlRes]) => {
+      client.get<PerfStats>(`/bots/${botId}/stats`),
+      client.get<[number, number][]>(`/bots/${botId}/stats/equity`),
+      client.get<[number, number][]>(`/bots/${botId}/stats/pnl-by-day`),
+    ]).then(([statsRes, equityRes, pnlRes]) => {
       if (cancelled) return
+      setStats(statsRes.data)
+      setPnlByDay(pnlRes.data ?? [])
 
-      const eqData = eqRes.data ?? []
+      const eqData = equityRes.data ?? []
       const pnlData = pnlRes.data ?? []
-      setPnlByDay(pnlData)
 
       if (!eqData.length && !pnlData.length) {
         setError('No performance data available yet.')
@@ -85,7 +105,6 @@ export default function Performance() {
           .map(([t, v]) => ({ time: t as any, value: v }))
         if (lineData.length) equitySeries.current.setData(lineData)
 
-        // drawdown from equity peak
         let peak = 0
         const ddData: LineData[] = eqData
           .filter(([t]) => t > 0)
@@ -113,16 +132,54 @@ export default function Performance() {
     })
 
     return () => { cancelled = true }
-  }, [])
+  }, [botId])
 
   return (
     <div className="p-6 space-y-6">
-      <h1 className="text-lg font-semibold text-body">Performance Charts</h1>
-      {loading && <div className="text-muted text-xs">Loading...</div>}
-      {error && <div className="text-muted text-xs">{error}</div>}
+      <h1 className="text-lg font-semibold text-body">
+        Performance{selectedBot ? ` — ${selectedBot.name}` : ' — Select a Bot'}
+      </h1>
+      {!selectedBot && (
+        <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-8 text-center">
+          <p className="text-sm text-muted">Select a bot from the sidebar to view performance</p>
+        </div>
+      )}
+      {selectedBot && loading && <div className="text-muted text-xs">Loading...</div>}
+      {selectedBot && error && <div className="text-muted text-xs">{error}</div>}
+
+      {selectedBot && stats && (
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <Card label="Net PnL" value={`${(stats.net_pnl ?? 0) >= 0 ? '+' : ''}$${(stats.net_pnl ?? 0).toFixed(2)}`} accent={(stats.net_pnl ?? 0) >= 0 ? 'trading-up' : 'trading-down'} />
+          <Card label="Profit Factor" value={stats.profit_factor != null ? stats.profit_factor.toFixed(2) : '—'} accent="primary" />
+          <Card label="Win Rate" value={stats.win_rate != null ? `${(stats.win_rate * 100).toFixed(1)}%` : '—'} accent={stats.win_rate != null && stats.win_rate >= 0.5 ? 'trading-up' : 'trading-down'} />
+          <Card label="Total Trades" value={String(stats.closed_trades)} accent="primary" />
+          <Card label="Avg R" value={stats.average_r?.toFixed(2) ?? '—'} accent={(stats.average_r ?? 0) >= 0 ? 'trading-up' : 'trading-down'} />
+        </div>
+      )}
+
       <div ref={chartRef} className="w-full rounded-lg overflow-hidden border border-hairline-on-dark" />
 
+      <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-4">
+        <h2 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">PnL Distribution{selectedBot ? ` — ${selectedBot.name}` : ''}</h2>
+        <PnLDistribution data={pnlByDay.map(([, v]) => v)} />
+      </div>
+
       {pnlByDay.length > 0 && <PnlCalendar data={pnlByDay} />}
+    </div>
+  )
+}
+
+function Card({ label, value, accent }: { label: string; value: string; accent: 'primary' | 'trading-up' | 'trading-down' | 'muted' }) {
+  const accentMap = {
+    primary: 'border-primary/30 text-primary',
+    'trading-up': 'border-trading-up/30 text-trading-up',
+    'trading-down': 'border-trading-down/30 text-trading-down',
+    muted: 'border-hairline-on-dark text-muted',
+  }
+  return (
+    <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-3">
+      <p className="text-xs text-muted mb-1">{label}</p>
+      <p className={`font-mono text-base font-semibold ${accentMap[accent]}`}>{value}</p>
     </div>
   )
 }

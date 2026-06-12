@@ -8,20 +8,19 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 
 from app import storage
 from app.candle_engine import CandleEngine, TIMEFRAMES
 from app.config import settings
-from app.models import CloseOrderRequest, HistoryImportRequest, OpenOrderRequest, ResetRequest, TickPayload
+from app.models import CloseOrderRequest, HistoryImportRequest, OpenOrderRequest, TickPayload
 from app.market_structure import MarketStructureEngine
 from app.order_blocks import OrderBlockEngine
-from app.stats import StatsEngine
 from app.replay import ReplayEngine
 from app.multibot import service as multibot
 from app.multibot.runtime import process_tick_sync
 
-app = FastAPI(title="MT5 Paper Trading Receiver", version="2.0.0")
+app = FastAPI(title="MT5 Paper Trading Receiver", version="2.2.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -42,7 +41,7 @@ async def basic_auth_middleware(request: Request, call_next):
         return JSONResponse(
             status_code=401,
             content={"detail": "Not authenticated"},
-            headers={"WWW-Authenticate": "Basic realm=\"dashboard\""},
+            headers={},
         )
     try:
         decoded = base64.b64decode(auth.removeprefix("Basic ")).decode()
@@ -51,13 +50,13 @@ async def basic_auth_middleware(request: Request, call_next):
         return JSONResponse(
             status_code=401,
             content={"detail": "Invalid authorization header"},
-            headers={"WWW-Authenticate": "Basic realm=\"dashboard\""},
+            headers={},
         )
     if username != settings.dashboard_username or password != settings.dashboard_password:
         return JSONResponse(
             status_code=401,
             content={"detail": "Invalid credentials"},
-            headers={"WWW-Authenticate": "Basic realm=\"dashboard\""},
+            headers={},
         )
     return await call_next(request)
 
@@ -66,7 +65,6 @@ storage.cleanup_old_data()
 candles = CandleEngine()
 structure = MarketStructureEngine()
 order_blocks = OrderBlockEngine()
-stats_engine = StatsEngine()
 replay_engine = ReplayEngine()
 
 latest_tick: dict[str, Any] | None = None
@@ -87,16 +85,6 @@ async def broadcast(payload: dict[str, Any]) -> None:
             dead.append(ws)
     for ws in dead:
         ws_clients.discard(ws)
-
-
-def _paper_bot_id() -> int | None:
-    bot = multibot.get_bot(1)
-    return bot["id"] if bot else None
-
-
-def _paper_bot_state() -> dict[str, Any]:
-    bot = multibot.bot_state(1) or {}
-    return bot
 
 
 @app.post("/price")
@@ -208,88 +196,14 @@ def history_status() -> dict[str, Any]:
 def health() -> dict[str, Any]:
     now = int(time.time())
     seconds = None if last_received_at is None else now - last_received_at
-    paper_bot = _paper_bot_state()
-    is_enabled = bool(paper_bot.get("bot", {}).get("enabled", False)) if paper_bot else False
     return {
         "ok": True,
         "sender_online": seconds is not None and seconds <= settings.stale_tick_seconds,
         "last_received_at": last_received_at,
         "seconds_since_last_message": seconds,
         "last_seq": last_seq,
-        "strategy_enabled": is_enabled,
         "websocket_clients": len(ws_clients),
-    }
-
-
-def _legacy_paper_state() -> dict[str, Any]:
-    """Return PaperEngine-compatible state from the 'Paper Trading' bot."""
-    state = _paper_bot_state()
-    if not state:
-        return {"balance": settings.initial_balance, "realized_pnl": 0, "unrealized_pnl": 0, "equity": settings.initial_balance, "open_position": None}
-    
-    bot = state.get("bot", {})
-    wallet = state.get("position") or {}
-    position = state.get("position")
-    
-    balance = float(bot.get("balance", settings.initial_balance))
-    realized_pnl = float(bot.get("realized_pnl", 0))
-    
-    unrealized = 0.0
-    if position and latest_tick:
-        entry = float(position["entry"])
-        side = str(position["side"])
-        lot = float(position["lot"])
-        exit_price = latest_tick["bid"] if side == "buy" else latest_tick["ask"]
-        points = exit_price - entry if side == "buy" else entry - exit_price
-        unrealized = points * lot * settings.contract_size
-    
-    return {
-        "balance": balance,
-        "realized_pnl": realized_pnl,
-        "unrealized_pnl": unrealized,
-        "equity": balance + unrealized,
-        "open_position": position,
-    }
-
-
-@app.get("/api/state")
-def state() -> dict[str, Any]:
-    indicator_state = {tf: candles.get_indicators(settings.symbol, tf) for tf in TIMEFRAMES}
-    pending = storage.query_one("SELECT * FROM bot_pending_orders WHERE bot_id=1 AND status='pending' ORDER BY id DESC LIMIT 1")
-    paper_state_obj = _legacy_paper_state()
-    paper_bot = _paper_bot_state()
-    is_enabled = bool(paper_bot.get("bot", {}).get("enabled", False)) if paper_bot else False
-    
-    return {
-        "health": health(),
         "latest_tick": latest_tick,
-        "paper": paper_state_obj,
-        "indicators": indicator_state,
-        "market_structure": {
-            "M5": structure.state(settings.symbol, "M5"),
-            "M15": structure.state(settings.symbol, "M15"),
-            "H1": structure.state(settings.symbol, "H1"),
-        },
-        "order_blocks": {
-            "M5": order_blocks.state(settings.symbol, "M5"),
-            "M15": order_blocks.state(settings.symbol, "M15"),
-            "H1": order_blocks.state(settings.symbol, "H1"),
-        },
-        "pending_orders": {
-            "symbol": settings.symbol,
-            "timeframe": "M15",
-            "active": pending,
-        },
-        "execution": {
-            "enabled": is_enabled,
-            "mode": "PAPER_ONLY",
-            "risk_percent": settings.trend_risk_percent,
-            "contract_size": settings.contract_size,
-            "lot_step": settings.lot_step,
-            "min_lot": settings.min_lot,
-            "max_lot": settings.max_lot,
-        },
-        "stats": stats_engine.summary(),
     }
 
 
@@ -375,28 +289,25 @@ def get_order_blocks(timeframe: str, limit: int = 50) -> list[dict[str, Any]]:
     return order_blocks.get_order_blocks(settings.symbol, timeframe, max(1, min(limit, 1000)))
 
 
-# ── Legacy-compatible Paper Trading endpoints (backed by bot_id=1) ──
-
-@app.get("/api/pending-orders/state")
-def get_pending_order_state() -> dict[str, Any]:
-    pending = storage.query_one("SELECT * FROM bot_pending_orders WHERE bot_id=1 AND status='pending' ORDER BY id DESC LIMIT 1")
-    return {
-        "symbol": settings.symbol,
-        "timeframe": "M15",
-        "active": pending,
-    }
-
+# ── Pending Orders ──
 
 @app.get("/api/pending-orders")
-def get_pending_orders(limit: int = 50) -> list[dict[str, Any]]:
-    return storage.query_all("SELECT * FROM bot_pending_orders WHERE bot_id=1 ORDER BY id DESC LIMIT ?", (max(1, min(limit, 1000)),))
+def get_pending_orders(limit: int = 50, bot_id: int | None = None) -> list[dict[str, Any]]:
+    if bot_id is not None:
+        return storage.query_all("SELECT * FROM bot_pending_orders WHERE bot_id=? ORDER BY id DESC LIMIT ?", (bot_id, max(1, min(limit, 1000))))
+    return storage.query_all("SELECT * FROM bot_pending_orders ORDER BY id DESC LIMIT ?", (max(1, min(limit, 1000)),))
 
 
 @app.get("/api/pending-orders/rejections")
-def get_pending_rejections(limit: int = 50) -> list[dict[str, Any]]:
+def get_pending_rejections(limit: int = 50, bot_id: int | None = None) -> list[dict[str, Any]]:
+    if bot_id is not None:
+        return storage.query_all(
+            "SELECT sl.*, b.name AS bot_name FROM bot_signal_logs sl JOIN bots b ON b.id=sl.bot_id WHERE sl.bot_id=? AND sl.event_type='pending_rejected' ORDER BY sl.id DESC LIMIT ?",
+            (bot_id, max(1, min(limit, 1000))),
+        )
     return storage.query_all(
-        "SELECT * FROM bot_signal_logs WHERE bot_id=1 AND event_type='pending_rejected' ORDER BY id DESC LIMIT ?",
-        (max(1, min(limit, 1000)),),
+        "SELECT sl.*, b.name AS bot_name FROM bot_signal_logs sl JOIN bots b ON b.id=sl.bot_id WHERE sl.event_type='pending_rejected' ORDER BY sl.id DESC LIMIT ?",
+        (max(1, min(limit, 1000))),
     )
 
 
@@ -409,9 +320,12 @@ def evaluate_pending_orders() -> dict[str, Any]:
 
 
 @app.post("/api/pending-orders/{order_id}/cancel")
-def cancel_pending_order(order_id: int) -> dict[str, Any]:
+def cancel_pending_order(order_id: int, bot_id: int | None = None) -> dict[str, Any]:
     with storage.transaction() as conn:
-        order = conn.execute("SELECT * FROM bot_pending_orders WHERE id=? AND bot_id=1", (order_id,)).fetchone()
+        if bot_id is not None:
+            order = conn.execute("SELECT * FROM bot_pending_orders WHERE id=? AND bot_id=?", (order_id, bot_id)).fetchone()
+        else:
+            order = conn.execute("SELECT * FROM bot_pending_orders WHERE id=?", (order_id,)).fetchone()
         if order is None or order["status"] != "pending":
             raise HTTPException(status_code=404, detail="Pending order not found or not pending")
         conn.execute(
@@ -421,83 +335,49 @@ def cancel_pending_order(order_id: int) -> dict[str, Any]:
         return dict(conn.execute("SELECT * FROM bot_pending_orders WHERE id=?", (order_id,)).fetchone())
 
 
-@app.post("/api/paper/open")
-def open_paper(req: OpenOrderRequest) -> dict[str, Any]:
+# ── Per-bot manual open/close ──
+
+@app.post("/api/bots/{bot_id}/open")
+def bot_open_position(bot_id: int, req: OpenOrderRequest) -> dict[str, Any]:
     if latest_tick is None:
         raise HTTPException(status_code=400, detail="No tick received yet")
-    bot = multibot.get_bot(1)
-    if bot is None:
-        raise HTTPException(status_code=500, detail="Paper Trading bot not found")
-    wallet = multibot.get_wallet(1)
-    if wallet is None:
-        raise HTTPException(status_code=500, detail="Wallet not found")
-    
-    entry = latest_tick["ask"] if req.side == "buy" else latest_tick["bid"]
-    now = int(time.time())
-    
-    with storage.transaction() as conn:
-        existing = conn.execute("SELECT id FROM bot_positions WHERE bot_id=1 AND status='open' LIMIT 1").fetchone()
-        if existing:
-            raise HTTPException(status_code=400, detail="Only one open position is allowed")
-        
-        cur = conn.execute(
-            """
-            INSERT INTO bot_positions(bot_id,wallet_id,symbol,side,lot,entry,stop_loss,take_profit,status,opened_at,updated_at)
-            VALUES(?,?,?,?,?,?,?,?,'open',?,?)
-            """,
-            (1, wallet["id"], latest_tick["symbol"], req.side, req.lot, entry, req.stop_loss, req.take_profit, now, now),
-        )
-        result = dict(conn.execute("SELECT * FROM bot_positions WHERE id=?", (cur.lastrowid,)).fetchone())
+    try:
+        result = multibot.open_position(bot_id, req.side, req.lot, req.stop_loss, req.take_profit, latest_tick)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if result is None:
+        raise HTTPException(status_code=404, detail="bot not found")
     return result
 
 
-@app.post("/api/paper/close")
-def close_paper(req: CloseOrderRequest) -> dict[str, Any]:
+@app.post("/api/bots/{bot_id}/close")
+def bot_close_position(bot_id: int, req: CloseOrderRequest) -> dict[str, Any]:
     if latest_tick is None:
         raise HTTPException(status_code=400, detail="No tick received yet")
-    with storage.transaction() as conn:
-        position = conn.execute("SELECT * FROM bot_positions WHERE bot_id=1 AND status='open' ORDER BY id DESC LIMIT 1").fetchone()
-        if position is None:
-            raise HTTPException(status_code=400, detail="No open position")
-        p = dict(position)
-        exit_price = latest_tick["bid"] if p["side"] == "buy" else latest_tick["ask"]
-        direction = 1.0 if p["side"] == "buy" else -1.0
-        pnl = (exit_price - float(p["entry"])) * direction * float(p["lot"]) * settings.contract_size
-        risk = abs(float(p["entry"]) - float(p["stop_loss"] or p["entry"])) * float(p["lot"]) * settings.contract_size
-        r_multiple = pnl / risk if risk > 0 else 0.0
-        now = int(time.time())
-        
-        conn.execute(
-            "UPDATE bot_positions SET status='closed',closed_at=?,exit_price=?,pnl=?,r_multiple=?,exit_reason=?,updated_at=? WHERE id=?",
-            (now, exit_price, pnl, r_multiple, "manual" if not req.note else req.note, now, p["id"]),
-        )
-        wallet = conn.execute("SELECT * FROM wallets WHERE bot_id=1").fetchone()
-        new_balance = float(wallet["balance"]) + pnl
-        peak = max(float(wallet["peak_equity"]), new_balance)
-        drawdown = ((peak - new_balance) / peak) if peak > 0 else 0.0
-        max_dd = max(float(wallet["max_drawdown"]), drawdown)
-        conn.execute(
-            "UPDATE wallets SET balance=?,realized_pnl=realized_pnl+?,peak_equity=?,max_drawdown=?,updated_at=? WHERE bot_id=?",
-            (new_balance, pnl, peak, max_dd, now, 1),
-        )
-        result = dict(conn.execute("SELECT * FROM bot_positions WHERE id=?", (p["id"],)).fetchone())
+    try:
+        result = multibot.close_position(bot_id, latest_tick, req.note)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if result is None:
+        raise HTTPException(status_code=404, detail="bot not found")
     return result
 
 
-@app.post("/api/paper/reset")
-def reset_paper(req: ResetRequest | None = None) -> dict[str, Any]:
-    now = int(time.time())
-    new_balance = settings.initial_balance if req is None or req.balance is None else req.balance
-    with storage.transaction() as conn:
-        conn.execute("DELETE FROM bot_pending_orders WHERE bot_id=1")
-        conn.execute("DELETE FROM bot_positions WHERE bot_id=1")
-        conn.execute(
-            "UPDATE wallets SET initial_balance=?,balance=?,realized_pnl=0,max_drawdown=0,peak_equity=?,updated_at=? WHERE bot_id=?",
-            (new_balance, new_balance, new_balance, now, 1),
-        )
-        conn.execute("UPDATE bot_runtime_state SET consecutive_losses=0,daily_realized_pnl=0,paused_reason=NULL,updated_at=? WHERE bot_id=1", (now,))
-        result = dict(conn.execute("SELECT * FROM wallets WHERE bot_id=1").fetchone())
-    return result
+# ── Per-bot stats ──
+
+@app.get("/api/bots/{bot_id}/stats")
+def bot_stats(bot_id: int):
+    return multibot.bot_stats_summary(bot_id)
+
+
+@app.get("/api/bots/{bot_id}/stats/equity")
+def bot_stats_equity(bot_id: int):
+    return multibot.bot_equity_curve(bot_id)
+
+
+@app.get("/api/bots/{bot_id}/stats/pnl-by-day")
+def bot_stats_pnl_by_day(bot_id: int):
+    return multibot.bot_pnl_by_day(bot_id)
 
 
 @app.get("/api/trades")
@@ -528,53 +408,9 @@ def get_trades(
         params.extend([until, until])
     params.append(max(1, min(limit, 1000)))
     return storage.query_all(
-        f"SELECT * FROM bot_positions WHERE {where} ORDER BY id DESC LIMIT ?",
+        f"SELECT *, exit_price AS \"exit\" FROM bot_positions WHERE {where} ORDER BY id DESC LIMIT ?",
         params,
     )
-
-
-@app.get("/")
-def root_dashboard() -> FileResponse:
-    return FileResponse("dashboard/index.html")
-
-
-@app.get("/dashboard-legacy")
-def dashboard() -> FileResponse:
-    return FileResponse("dashboard/index.html")
-
-
-@app.get("/api/strategy/status")
-def strategy_status() -> dict[str, Any]:
-    bot = multibot.get_bot(1)
-    is_enabled = bool(bot.get("enabled", False)) if bot else False
-    return {"enabled": is_enabled, "mode": "PAPER_ONLY"}
-
-
-@app.post("/api/strategy/enable")
-def strategy_enable() -> dict[str, Any]:
-    multibot.set_bot_enabled(1, True)
-    return {"enabled": True, "mode": "PAPER_ONLY"}
-
-
-@app.post("/api/strategy/disable")
-def strategy_disable() -> dict[str, Any]:
-    multibot.set_bot_enabled(1, False)
-    return {"enabled": False, "mode": "PAPER_ONLY"}
-
-
-@app.get("/api/stats")
-def stats() -> dict[str, Any]:
-    return stats_engine.summary()
-
-
-@app.get("/api/stats/equity")
-def stats_equity() -> list[tuple[int, float]]:
-    return stats_engine.equity_curve()
-
-
-@app.get("/api/stats/pnl-by-day")
-def stats_pnl_by_day() -> list[tuple[int, float]]:
-    return stats_engine.pnl_by_day()
 
 
 @app.get("/api/signal-logs")

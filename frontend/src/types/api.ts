@@ -34,16 +34,9 @@ export interface Indicators {
   trend: string | null
 }
 
-export interface PaperAccount {
-  balance: number
-  equity: number
-  unrealized_pnl: number
-  realized_pnl: number
-  open_position: Trade | null
-}
-
 export interface Trade {
   id: number
+  bot_id: number
   symbol: string
   side: string
   lot: number
@@ -108,47 +101,14 @@ export interface PendingOrder {
   expires_at: number
 }
 
-export interface PendingOrderState {
-  active: PendingOrder | null
-  rules: Record<string, unknown>
-}
-
-export interface ExecutionState {
-  enabled: boolean
-  auto_paper_enabled: boolean
-}
-
-export interface Stats {
-  closed_trades: number
-  wins: number
-  losses: number
-  win_rate: number | null
-  profit_factor: number | null
-  net_pnl: number
-  max_drawdown_usd: number | null
-  average_r: number | null
-}
-
 export interface Health {
   ok: boolean
   sender_online: boolean
   last_received_at: number | null
   seconds_since_last_message: number | null
   last_seq: number | null
-  strategy_enabled: boolean
   websocket_clients: number
-}
-
-export interface AppState {
-  health: Health
   latest_tick: Tick | null
-  paper: PaperAccount
-  indicators: Record<string, Indicators>
-  market_structure: Record<string, MarketStructureState>
-  order_blocks: Record<string, OrderBlockState>
-  pending_orders: PendingOrderState
-  execution: ExecutionState
-  stats: Stats
 }
 
 // Multi-bot types
@@ -174,6 +134,7 @@ export interface Bot {
   enabled: boolean
   parameters: Record<string, unknown>
   created_at: number
+  runtime_updated_at?: number
 }
 
 export interface BotStats {
@@ -193,6 +154,7 @@ export interface BotState {
     consecutive_losses: number
     daily_realized_pnl: number
     paused_reason: string | null
+    updated_at: number | null
   } | null
   trades: Trade[]
 }
@@ -208,15 +170,6 @@ export interface Wallet {
   peak_equity: number
 }
 
-export interface CompareResult {
-  bot_id: number
-  name: string
-  total_trades: number
-  win_rate: number
-  total_pnl: number
-  profit_factor: number
-}
-
 export interface BotSignalLog {
   id: number
   symbol?: string
@@ -230,22 +183,10 @@ export interface BotSignalLog {
   ts?: number
 }
 
-export interface BotCreateRequest {
-  profile_id: number
+export interface StrategyOption {
+  id: string
   name: string
-  strategy_type?: string
-  strategy_version?: string
-  symbol?: string
-  timeframe?: string
-  enabled?: boolean
-  initial_balance?: number
-  parameters?: Record<string, unknown>
-}
-
-export interface ProfileCreateRequest {
-  name: string
-  description?: string
-  enabled?: boolean
+  description: string
 }
 
 export interface CompareBot {
@@ -273,23 +214,6 @@ export interface ReplayRun {
   symbol: string
   payload: string
   created_at: number
-}
-
-export interface HistoryCandle {
-  open_time: number
-  open: number
-  high: number
-  low: number
-  close: number
-  tick_volume?: number
-}
-
-export interface HistoryImportRequest {
-  symbol: string
-  timeframe: 'M1' | 'M5' | 'M15' | 'H1'
-  source: string
-  offset_seconds: number
-  candles: HistoryCandle[]
 }
 
 export interface HistoryStatus {

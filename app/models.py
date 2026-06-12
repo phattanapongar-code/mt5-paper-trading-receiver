@@ -60,5 +60,3 @@ class CloseOrderRequest(BaseModel):
     note: str = "manual_close"
 
 
-class ResetRequest(BaseModel):
-    balance: Optional[float] = None

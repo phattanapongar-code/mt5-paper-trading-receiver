@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, RedirectResponse
-
 from app.multibot import db, service
-from app.multibot.dashboard import HTML
 from app.multibot.models import BotCreate, BotParameterUpdate, CloneBotRequest, ProfileCreate, RenameBotRequest, UpdateBotRequest, WalletResetRequest
 from app.multibot.runtime import hub
+from app.multibot.strategies import list_strategies
 
 router = APIRouter(tags=["multi-bot"])
 db.migrate()
@@ -157,6 +155,11 @@ def update_bot(bot_id: int, payload: UpdateBotRequest):
     return result
 
 
+@router.get("/api/strategies")
+def strategies():
+    return list_strategies()
+
+
 @router.get("/api/bots/{bot_id}/wallet")
 def wallet(bot_id: int):
     result = service.get_wallet(bot_id)
@@ -193,11 +196,4 @@ async def ws_multibot(ws: WebSocket):
         hub.clients.discard(ws)
 
 
-@router.get("/dashboard", response_class=HTMLResponse)
-def unified_dashboard():
-    return HTML
 
-
-@router.get("/multi-bot-dashboard")
-def dashboard_redirect():
-    return RedirectResponse(url="/dashboard", status_code=307)

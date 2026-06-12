@@ -1,44 +1,54 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { createChart, ColorType, type IChartApi, type ISeriesApi, type CandlestickData, type LineData, type UTCTimestamp, CandlestickSeries, LineSeries } from 'lightweight-charts'
+import { createChart, ColorType, createSeriesMarkers, type IChartApi, type ISeriesApi, type ISeriesMarkersPluginApi, type CandlestickData, type LineData, type UTCTimestamp, type Time, CandlestickSeries, LineSeries } from 'lightweight-charts'
 import client from '../api/client'
-import type { Candle, Indicators, OrderBlock, MarketStructureState, PendingOrder } from '../types/api'
+import { useBotContext } from '../context/BotContext'
+import type { Candle, Indicators, OrderBlock, MarketStructureState } from '../types/api'
+
+interface CandlePendingOrder {
+  id: number; bot_id?: number; side: string; entry: number; stop_loss: number; take_profit: number
+}
 
 const TIMEFRAMES = ['M1', 'M5', 'M15', 'H1'] as const
 type TF = (typeof TIMEFRAMES)[number]
 
 export default function Charts() {
+  const { allBots } = useBotContext()
   const chartRef = useRef<HTMLDivElement>(null)
   const chartApiRef = useRef<IChartApi | null>(null)
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
   const ma60SeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
   const ma80SeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
   const ma300SeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const markersPluginRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null)
 
   const [timeframe, setTimeframe] = useState<TF>('M15')
+  const [pendingBotId, setPendingBotId] = useState<number | null>(null)
   const [candles, setCandles] = useState<Candle[]>([])
   const [indicators, setIndicators] = useState<Indicators | null>(null)
   const [obs, setObs] = useState<OrderBlock[]>([])
   const [structure, setStructure] = useState<MarketStructureState | null>(null)
-  const [pending, setPending] = useState<PendingOrder | null>(null)
+  const [pending, setPending] = useState<CandlePendingOrder | null>(null)
 
   const fetchData = useCallback(async (tf: TF) => {
     try {
+      const pendingParams: Record<string, unknown> = { limit: 1 }
+      if (pendingBotId) pendingParams.bot_id = pendingBotId
       const [candleRes, indRes, obRes, structRes, pendingRes] = await Promise.all([
         client.get<Candle[]>(`/candles/${tf}`, { params: { limit: 200, closed_only: false } }),
         client.get<Indicators>(`/indicators/${tf}`),
         client.get<OrderBlock[]>(`/order-blocks/active/${tf}`, { params: { limit: 10 } }),
         client.get<MarketStructureState>(`/market-structure/${tf}`),
-        client.get<{ active: PendingOrder | null }>('/pending-orders/state'),
+        client.get<CandlePendingOrder[]>('/pending-orders', { params: pendingParams }),
       ])
       setCandles(candleRes.data)
       setIndicators(indRes.data)
       setObs(obRes.data)
       setStructure(structRes.data)
-      setPending(pendingRes.data.active)
+      setPending(pendingRes.data[0] ?? null)
     } catch {
       // ignore
     }
-  }, [])
+  }, [pendingBotId])
 
   useEffect(() => {
     fetchData(timeframe)
@@ -103,6 +113,8 @@ export default function Charts() {
       priceFormat: { type: 'custom' as const, formatter: (p: number) => p.toFixed(2) },
     })
 
+    markersPluginRef.current = createSeriesMarkers(candlesSeries)
+
     chartApiRef.current = chart
     candleSeriesRef.current = candlesSeries
     ma60SeriesRef.current = ma60
@@ -118,6 +130,7 @@ export default function Charts() {
 
     return () => {
       window.removeEventListener('resize', handleResize)
+      markersPluginRef.current = null
       chart.remove()
     }
   }, [])
@@ -202,28 +215,40 @@ export default function Charts() {
       markers.push({ time: structure.latest_swing_low.pivot_open_time as UTCTimestamp, position: 'aboveBar', color: '#FCD535', shape: 'arrowUp', text: 'L' })
     }
     if (markers.length) {
-      series.setMarkers(markers)
+      markersPluginRef.current?.setMarkers(markers)
     }
   }, [candles, indicators, obs, structure, pending])
 
   return (
     <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-lg font-semibold text-body">Charts</h1>
-        <div className="flex gap-1">
-          {TIMEFRAMES.map((tf) => (
-            <button
-              key={tf}
-              onClick={() => setTimeframe(tf)}
-              className={`px-3 py-1.5 text-xs font-mono font-semibold rounded-md transition-colors cursor-pointer ${
-                timeframe === tf
-                  ? 'bg-primary/10 text-primary border border-primary/50'
-                  : 'bg-surface-card-dark text-muted border border-hairline-on-dark hover:border-surface-elevated-dark'
-              }`}
-            >
-              {tf}
-            </button>
-          ))}
+        <div className="flex gap-1 items-center">
+          <select
+            value={pendingBotId ?? ''}
+            onChange={(e) => setPendingBotId(e.target.value ? Number(e.target.value) : null)}
+            className="px-2 py-1.5 text-xs bg-surface-card-dark text-muted border border-hairline-on-dark rounded-md focus:outline-none focus:border-primary cursor-pointer"
+          >
+            <option value="">All Bots</option>
+            {allBots.map((b) => (
+              <option key={b.id} value={b.id}>{b.name}</option>
+            ))}
+          </select>
+          <div className="flex gap-1">
+            {TIMEFRAMES.map((tf) => (
+              <button
+                key={tf}
+                onClick={() => setTimeframe(tf)}
+                className={`px-3 py-1.5 text-xs font-mono font-semibold rounded-md transition-colors cursor-pointer ${
+                  timeframe === tf
+                    ? 'bg-primary/10 text-primary border border-primary/50'
+                    : 'bg-surface-card-dark text-muted border border-hairline-on-dark hover:border-surface-elevated-dark'
+                }`}
+              >
+                {tf}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

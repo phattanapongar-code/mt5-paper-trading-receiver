@@ -54,7 +54,7 @@ def list_bots(profile_id: int | None = None) -> list[dict[str, Any]]:
                w.currency, w.max_drawdown, w.peak_equity,
                COALESCE((SELECT COUNT(*) FROM bot_pending_orders x WHERE x.bot_id=b.id AND x.status='pending'),0) AS pending_count,
                COALESCE((SELECT COUNT(*) FROM bot_positions x WHERE x.bot_id=b.id AND x.status='open'),0) AS open_position_count,
-               s.latest_trend, s.paused_reason
+               s.latest_trend, s.paused_reason, s.updated_at AS runtime_updated_at
         FROM bots b
         JOIN profiles p ON p.id=b.profile_id
         JOIN wallets w ON w.bot_id=b.id
@@ -173,9 +173,9 @@ def bot_state(bot_id: int) -> dict[str, Any] | None:
     if not bot:
         return None
     pending = storage.query_one("SELECT * FROM bot_pending_orders WHERE bot_id=? AND status='pending' ORDER BY id DESC LIMIT 1", (bot_id,))
-    position = storage.query_one("SELECT * FROM bot_positions WHERE bot_id=? AND status='open' ORDER BY id DESC LIMIT 1", (bot_id,))
+    position = storage.query_one("SELECT *, exit_price AS \"exit\" FROM bot_positions WHERE bot_id=? AND status='open' ORDER BY id DESC LIMIT 1", (bot_id,))
     state = storage.query_one("SELECT * FROM bot_runtime_state WHERE bot_id=?", (bot_id,))
-    trades = storage.query_all("SELECT * FROM bot_positions WHERE bot_id=? ORDER BY id DESC LIMIT 20", (bot_id,))
+    trades = storage.query_all("SELECT *, exit_price AS \"exit\" FROM bot_positions WHERE bot_id=? ORDER BY id DESC LIMIT 20", (bot_id,))
     return {"bot": bot, "pending": pending, "position": position, "runtime": state, "trades": trades}
 
 
@@ -184,7 +184,7 @@ def signal_logs(bot_id: int, limit: int = 100) -> list[dict[str, Any]]:
 
 
 def trades(bot_id: int, limit: int = 100) -> list[dict[str, Any]]:
-    return storage.query_all("SELECT * FROM bot_positions WHERE bot_id=? ORDER BY id DESC LIMIT ?", (bot_id, limit))
+    return storage.query_all("SELECT *, exit_price AS \"exit\" FROM bot_positions WHERE bot_id=? ORDER BY id DESC LIMIT ?", (bot_id, limit))
 
 
 def delete_profile(profile_id: int) -> bool:
@@ -217,10 +217,13 @@ def update_bot(bot_id: int, **updates) -> dict[str, Any] | None:
     with storage.transaction() as conn:
         pairs = []
         params: list[Any] = []
-        for key in ("name", "symbol", "timeframe", "enabled"):
+        for key in ("name", "symbol", "timeframe", "strategy_type", "enabled"):
             if key in updates and updates[key] is not None:
                 pairs.append(f"{key}=?")
-                val = 1 if (key == "enabled" and updates[key]) else (0 if key == "enabled" else updates[key])
+                if key == "enabled":
+                    val = 1 if updates[key] else 0
+                else:
+                    val = updates[key]
                 params.append(val)
         if pairs:
             params.append(now)
@@ -234,6 +237,142 @@ def update_bot(bot_id: int, **updates) -> dict[str, Any] | None:
             conn.execute("UPDATE wallets SET initial_balance=?, balance=?, realized_pnl=0, max_drawdown=0, peak_equity=?, updated_at=? WHERE bot_id=?", (bal, bal, bal, now, bot_id))
             conn.execute("UPDATE bot_runtime_state SET consecutive_losses=0,daily_realized_pnl=0,paused_reason=NULL,updated_at=? WHERE bot_id=?", (now, bot_id))
     return get_bot(bot_id)
+
+
+def open_position(bot_id: int, side: str, lot: float, stop_loss: float | None, take_profit: float | None, tick: dict[str, Any]) -> dict[str, Any] | None:
+    """Open a manual position for a specific bot."""
+    bot = get_bot(bot_id)
+    if bot is None:
+        return None
+    wallet = get_wallet(bot_id)
+    if wallet is None:
+        return None
+    entry = tick["ask"] if side == "buy" else tick["bid"]
+    now = int(time.time())
+    with storage.transaction() as conn:
+        existing = conn.execute("SELECT id FROM bot_positions WHERE bot_id=? AND status='open' LIMIT 1", (bot_id,)).fetchone()
+        if existing:
+            raise ValueError("Only one open position is allowed")
+        cur = conn.execute(
+            """
+            INSERT INTO bot_positions(bot_id,wallet_id,symbol,side,lot,entry,stop_loss,take_profit,status,opened_at,updated_at)
+            VALUES(?,?,?,?,?,?,?,?,'open',?,?)
+            """,
+            (bot_id, wallet["id"], tick.get("symbol", "XAUUSD"), side, lot, entry, stop_loss, take_profit, now, now),
+        )
+        return dict(conn.execute("SELECT *, exit_price AS \"exit\" FROM bot_positions WHERE id=?", (cur.lastrowid,)).fetchone())
+
+
+def close_position(bot_id: int, tick: dict[str, Any], note: str = "manual_close") -> dict[str, Any] | None:
+    """Close the open position for a specific bot."""
+    from app.config import settings
+    with storage.transaction() as conn:
+        position = conn.execute("SELECT * FROM bot_positions WHERE bot_id=? AND status='open' ORDER BY id DESC LIMIT 1", (bot_id,)).fetchone()
+        if position is None:
+            raise ValueError("No open position")
+        p = dict(position)
+        exit_price = tick["bid"] if p["side"] == "buy" else tick["ask"]
+        direction = 1.0 if p["side"] == "buy" else -1.0
+        pnl = (exit_price - float(p["entry"])) * direction * float(p["lot"]) * settings.contract_size
+        risk = abs(float(p["entry"]) - float(p["stop_loss"] or p["entry"])) * float(p["lot"]) * settings.contract_size
+        r_multiple = pnl / risk if risk > 0 else 0.0
+        now = int(time.time())
+
+        conn.execute(
+            "UPDATE bot_positions SET status='closed',closed_at=?,exit_price=?,pnl=?,r_multiple=?,exit_reason=?,updated_at=? WHERE id=?",
+            (now, exit_price, pnl, r_multiple, note, now, p["id"]),
+        )
+        wallet = conn.execute("SELECT * FROM wallets WHERE bot_id=?", (bot_id,)).fetchone()
+        new_balance = float(wallet["balance"]) + pnl
+        peak = max(float(wallet["peak_equity"]), new_balance)
+        drawdown = ((peak - new_balance) / peak) if peak > 0 else 0.0
+        max_dd = max(float(wallet["max_drawdown"]), drawdown)
+        conn.execute(
+            "UPDATE wallets SET balance=?,realized_pnl=realized_pnl+?,peak_equity=?,max_drawdown=?,updated_at=? WHERE bot_id=?",
+            (new_balance, pnl, peak, max_dd, now, bot_id),
+        )
+        return dict(conn.execute("SELECT *, exit_price AS \"exit\" FROM bot_positions WHERE id=?", (p["id"],)).fetchone())
+
+
+def bot_stats_summary(bot_id: int) -> dict[str, Any]:
+    """Per-bot stats summary (mirrors StatsEngine.summary but for any bot)."""
+    import math
+    closed = storage.query_all(
+        "SELECT * FROM bot_positions WHERE bot_id=? AND status='closed' ORDER BY closed_at ASC, id ASC",
+        (bot_id,),
+    )
+    pnls = [float(t.get("pnl") or 0.0) for t in closed]
+    rs = [float(t.get("r_multiple") or 0.0) for t in closed if t.get("r_multiple") is not None]
+    wins = [p for p in pnls if p > 0]
+    losses = [p for p in pnls if p < 0]
+    equity = 0.0
+    peak = 0.0
+    max_drawdown = 0.0
+    for pnl in pnls:
+        equity += pnl
+        peak = max(peak, equity)
+        max_drawdown = max(max_drawdown, peak - equity)
+    gross_profit = sum(wins)
+    gross_loss = abs(sum(losses))
+    wallet = storage.query_one("SELECT * FROM wallets WHERE bot_id=?", (bot_id,)) or {}
+    return {
+        "closed_trades": len(closed),
+        "wins": len(wins),
+        "losses": len(losses),
+        "win_rate": (len(wins) / len(closed)) if closed else 0.0,
+        "net_pnl": sum(pnls),
+        "profit_factor": (gross_profit / gross_loss) if gross_loss > 0 else None,
+        "average_r": (sum(rs) / len(rs)) if rs else 0.0,
+        "max_drawdown_usd": max_drawdown,
+        "balance": float(wallet.get("balance") or 0.0),
+        "realized_pnl": float(wallet.get("realized_pnl") or 0.0),
+    }
+
+
+def bot_equity_curve(bot_id: int) -> list[tuple[int, float]]:
+    closed = storage.query_all(
+        "SELECT closed_at, pnl FROM bot_positions WHERE bot_id=? AND status='closed' AND closed_at IS NOT NULL ORDER BY closed_at ASC, id ASC",
+        (bot_id,),
+    )
+    result: list[tuple[int, float]] = []
+    cum = 0.0
+    for row in closed:
+        cum += float(row["pnl"] or 0.0)
+        result.append((int(row["closed_at"]), round(cum, 2)))
+    return result
+
+
+def bot_pnl_by_day(bot_id: int) -> list[tuple[int, float]]:
+    from datetime import datetime, timezone
+    closed = storage.query_all(
+        "SELECT closed_at, pnl FROM bot_positions WHERE bot_id=? AND status='closed' AND closed_at IS NOT NULL ORDER BY closed_at ASC",
+        (bot_id,),
+    )
+    daily: dict[str, float] = {}
+    for row in closed:
+        dt = datetime.fromtimestamp(int(row["closed_at"]), tz=timezone.utc)
+        day_key = dt.strftime("%Y-%m-%d")
+        daily[day_key] = daily.get(day_key, 0.0) + float(row["pnl"] or 0.0)
+    result: list[tuple[int, float]] = []
+    for day_key in sorted(daily):
+        ts = int(datetime.strptime(day_key, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp())
+        result.append((ts, round(daily[day_key], 2)))
+    return result
+
+
+def all_pending_orders() -> list[dict[str, Any]]:
+    """Get all pending orders across all bots."""
+    return storage.query_all(
+        "SELECT po.*, b.name AS bot_name FROM bot_pending_orders po JOIN bots b ON b.id=po.bot_id WHERE po.status='pending' ORDER BY po.id DESC"
+    )
+
+
+def all_pending_rejections(limit: int = 50) -> list[dict[str, Any]]:
+    """Get pending order rejections across all bots."""
+    return storage.query_all(
+        "SELECT sl.*, b.name AS bot_name FROM bot_signal_logs sl JOIN bots b ON b.id=sl.bot_id WHERE sl.event_type='pending_rejected' ORDER BY sl.id DESC LIMIT ?",
+        (max(1, min(limit, 1000)),),
+    )
 
 
 def delete_bot(bot_id: int) -> bool:

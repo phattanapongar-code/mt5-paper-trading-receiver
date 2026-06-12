@@ -32,13 +32,13 @@ def _trend(symbol: str, timeframe: str) -> str:
     if not storage.table_exists("candles"):
         return "WARMING_UP"
     rows = storage.query_all(
-        "SELECT close FROM candles WHERE symbol=? AND timeframe=? AND is_closed=1 ORDER BY open_time DESC LIMIT 300",
+        "SELECT open, high, low, close, is_closed FROM candles WHERE symbol=? AND timeframe=? AND is_closed=1 ORDER BY open_time DESC LIMIT 300",
         (symbol, timeframe),
     )
     if not rows:
         return "WARMING_UP"
-    closes = list(reversed(rows))
-    result = compute_indicators(closes)
+    candles = list(reversed(rows))
+    result = compute_indicators(candles)
     return str(result["trend"])
 
 
@@ -118,7 +118,6 @@ def _evaluate_bot(conn, bot: dict[str, Any], tick: dict[str, Any], now: int) -> 
     wallet_id = int(bot["wallet_id"])
     params = _params(bot.get("parameters_json"))
     bid, ask = float(tick["bid"]), float(tick["ask"])
-    mid = (bid + ask) / 2
     spread = ask - bid
     trend = _trend(bot["symbol"], bot["timeframe"])
     day = datetime.now(timezone.utc).date().isoformat()
@@ -178,51 +177,45 @@ def _evaluate_bot(conn, bot: dict[str, Any], tick: dict[str, Any], now: int) -> 
         conn.execute("UPDATE bot_runtime_state SET paused_reason='max_consecutive_losses',updated_at=? WHERE bot_id=?", (now, bot_id))
         return
 
-    ob = _latest_ob(bot["symbol"], bot["timeframe"], int(params["ob_strong_score"]), bool(params.get("allow_tested_once", True)))
-    if not ob:
+    from app.multibot.strategies import get_strategy
+    meta = get_strategy(str(bot.get("strategy_type", "trend_ob")))
+    if meta is None:
+        _log(conn, bot_id, "strategy_error", f"unknown strategy: {bot.get('strategy_type')}", None)
         return
-    side = str(ob["side"]).lower()
-    if (side == "bullish" and trend != "BULLISH") or (side == "bearish" and trend != "BEARISH"):
+    decision = meta.decide(conn, bot, tick, params, now)
+    if decision is None:
         return
-    if params.get("require_m5_confirmation") and not _m5_confirmed(bot["symbol"], side):
+    action = str(decision.get("action", "")).lower()
+    if action not in ("buy", "sell"):
         return
-    low, high = float(ob["ob_low"]), float(ob["ob_high"])
-    if not (low <= mid <= high):
-        return
-    ob_key = _stable_ob_key(ob)
-    seen = conn.execute("SELECT 1 FROM bot_pending_orders WHERE bot_id=? AND ob_key=? LIMIT 1", (bot_id, ob_key)).fetchone()
-    if seen:
-        return
-    entry = (low + high) / 2
-    ob_range = high - low
-    buffer = ob_range * float(params["sl_buffer_ratio"])
-    if side == "bullish":
-        order_side = "buy"
-        sl = low - buffer
-        risk_distance = entry - sl
-        tp = entry + float(params["tp_r_multiple"]) * risk_distance
-    else:
-        order_side = "sell"
-        sl = high + buffer
-        risk_distance = sl - entry
-        tp = entry - float(params["tp_r_multiple"]) * risk_distance
+    ob_key = decision.get("ob_key")
+    if ob_key:
+        seen = conn.execute("SELECT 1 FROM bot_pending_orders WHERE bot_id=? AND ob_key=? LIMIT 1", (bot_id, ob_key)).fetchone()
+        if seen:
+            return
+    entry = float(decision["entry"])
+    sl = float(decision["stop_loss"])
+    tp = float(decision["take_profit"])
+    risk_distance = abs(entry - sl)
     if risk_distance <= 0:
         return
-    rr = abs(tp - entry) / risk_distance
+    rr = float(decision.get("risk_reward", 0) or (abs(tp - entry) / risk_distance))
     if rr < 1.5:
         return
     risk_usd = float(wallet["balance"]) * float(params["risk_percent"])
     lot = _round_lot(risk_usd / (risk_distance * float(params["contract_size"])), float(params["lot_step"]), float(params["min_lot"]), float(params["max_lot"]))
+    if lot <= 0:
+        return
     expiry_seconds = int(params["expiry_candles"]) * (900 if bot["timeframe"] == "M15" else 300)
     cur = conn.execute(
         """
         INSERT INTO bot_pending_orders(bot_id,wallet_id,ob_key,symbol,timeframe,side,entry,stop_loss,take_profit,risk_reward,risk_percent,lot,status,created_at,expires_at,updated_at)
         VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'pending', ?, ?, ?)
         """,
-        (bot_id, wallet_id, ob_key, bot["symbol"], bot["timeframe"], order_side, entry, sl, tp, rr, params["risk_percent"], lot, now, now + expiry_seconds, now),
+        (bot_id, wallet_id, ob_key, bot["symbol"], bot["timeframe"], action, entry, sl, tp, rr, params["risk_percent"], lot, now, now + expiry_seconds, now),
     )
     conn.execute("UPDATE bot_runtime_state SET latest_ob_key=?,updated_at=? WHERE bot_id=?", (ob_key, now, bot_id))
-    _log(conn, bot_id, "pending_created", "strong_ob_retest", {"pending_id": cur.lastrowid, "ob_key": ob_key, "entry": entry, "sl": sl, "tp": tp, "lot": lot})
+    _log(conn, bot_id, "pending_created", str(meta.id), {"pending_id": cur.lastrowid, "ob_key": ob_key, "entry": entry, "sl": sl, "tp": tp, "lot": lot, "strategy": meta.id})
 
 
 def process_tick_sync(tick: dict[str, Any]) -> dict[str, Any]:

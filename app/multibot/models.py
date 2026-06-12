@@ -33,5 +33,6 @@ class UpdateBotRequest(BaseModel):
     name: str | None = None
     symbol: str | None = None
     timeframe: str | None = None
+    strategy_type: str | None = None
     enabled: bool | None = None
     initial_balance: float | None = None

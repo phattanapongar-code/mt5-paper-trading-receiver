@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import client from '../api/client'
-import type { Profile, Bot } from '../types/api'
+import type { Profile, Bot, StrategyOption } from '../types/api'
 import ProfileForm from '../components/ProfileForm'
 import BotForm from '../components/BotForm'
 
@@ -12,6 +12,12 @@ interface EditBotState {
   name: string
   symbol: string
   timeframe: string
+  strategy_type: string
+}
+
+function isLive(bot: Bot): boolean {
+  if (!bot.runtime_updated_at) return false
+  return Date.now() / 1000 - bot.runtime_updated_at < 10
 }
 
 export default function BotManager() {
@@ -21,16 +27,19 @@ export default function BotManager() {
   const [showProfileForm, setShowProfileForm] = useState(false)
   const [showBotForm, setShowBotForm] = useState(false)
   const [editBot, setEditBot] = useState<EditBotState | null>(null)
+  const [strategies, setStrategies] = useState<StrategyOption[]>([])
   const navigate = useNavigate()
 
   const fetchData = useCallback(async () => {
     try {
-      const [profRes, botsRes] = await Promise.all([
+      const [profRes, botsRes, stratRes] = await Promise.all([
         client.get<Profile[]>('/profiles'),
         client.get<Bot[]>('/bots'),
+        client.get<StrategyOption[]>('/strategies'),
       ])
       setProfiles(profRes.data)
       setBots(botsRes.data)
+      setStrategies(stratRes.data)
     } catch (err) {
       log('fetch failed', err)
     } finally {
@@ -67,6 +76,7 @@ export default function BotManager() {
       name: editBot.name,
       symbol: editBot.symbol,
       timeframe: editBot.timeframe,
+      strategy_type: editBot.strategy_type,
     })
     setEditBot(null)
     fetchData()
@@ -120,13 +130,15 @@ export default function BotManager() {
                 </span>
                 <button onClick={() => deleteProfile(profile.id)}
                   className="px-2 py-1 text-xs text-rose-500 border border-rose-500/50 rounded bg-rose-500/10 cursor-pointer">Delete</button>
+                <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${
+                  profile.enabled ? 'text-trading-up' : 'text-muted'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full ${profile.enabled ? 'bg-trading-up' : 'bg-surface-400'}`} />
+                  {profile.enabled ? 'ON' : 'OFF'}
+                </span>
                 <button onClick={() => toggleProfile(profile.id, !!profile.enabled)}
-                  className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-colors cursor-pointer ${
-                    profile.enabled
-                      ? 'bg-trading-up/10 text-trading-up border border-trading-up/50'
-                      : 'bg-surface-elevated-dark text-muted border border-surface-400'
-                  }`}>
-                  {profile.enabled ? 'ENABLED' : 'DISABLED'}
+                  className="px-2.5 py-1 text-xs rounded-md font-semibold transition-colors cursor-pointer bg-primary/10 text-primary border border-primary/50 hover:bg-primary/20">
+                  {profile.enabled ? 'DISABLE' : 'ENABLE'}
                 </button>
               </div>
             </div>
@@ -139,21 +151,35 @@ export default function BotManager() {
                     onClick={() => navigate(`/bots/${bot.id}`)}>
                     <div className="flex items-center gap-3">
                       <span className="text-sm text-body">{bot.name}</span>
+                      {bot.enabled && isLive(bot) && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-trading-up">
+                          <span className="w-1.5 h-1.5 rounded-full bg-trading-up shadow-[0_0_4px_#0ecb81] animate-pulse" />
+                          LIVE
+                        </span>
+                      )}
+                      {bot.enabled && !isLive(bot) && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-muted">
+                          <span className="w-1.5 h-1.5 rounded-full bg-surface-400" />
+                          IDLE
+                        </span>
+                      )}
                       <span className="text-xs font-mono text-muted">{bot.strategy_type} v{bot.strategy_version}</span>
                       <span className="text-xs font-mono text-muted">{bot.symbol} {bot.timeframe}</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <button onClick={(e) => { e.stopPropagation(); setEditBot({ bot, name: bot.name, symbol: bot.symbol, timeframe: bot.timeframe }) }}
+                      <button onClick={(e) => { e.stopPropagation(); setEditBot({ bot, name: bot.name, symbol: bot.symbol, timeframe: bot.timeframe, strategy_type: bot.strategy_type }) }}
                         className="px-2 py-1 text-xs text-primary border border-primary/50 rounded bg-primary/10 cursor-pointer">Edit</button>
                       <button onClick={(e) => deleteBot(bot.id, e)}
                         className="px-2 py-1 text-xs text-rose-500 border border-rose-500/50 rounded bg-rose-500/10 cursor-pointer">Del</button>
-                      <button onClick={(e) => { e.stopPropagation(); toggleBot(bot.id, !!bot.enabled) }}
-                        className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-colors cursor-pointer ${
-                          bot.enabled
-                            ? 'bg-trading-up/10 text-trading-up border border-trading-up/50'
-                            : 'bg-surface-elevated-dark text-muted border border-surface-400'
-                        }`}>
+                      <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${
+                        bot.enabled ? 'text-trading-up' : 'text-muted'
+                      }`}>
+                        <span className={`w-2 h-2 rounded-full ${bot.enabled ? 'bg-trading-up' : 'bg-surface-400'}`} />
                         {bot.enabled ? 'ON' : 'OFF'}
+                      </span>
+                      <button onClick={(e) => { e.stopPropagation(); toggleBot(bot.id, !!bot.enabled) }}
+                        className="px-2.5 py-1 text-xs rounded-md font-semibold transition-colors cursor-pointer bg-primary/10 text-primary border border-primary/50 hover:bg-primary/20">
+                        {bot.enabled ? 'DISABLE' : 'ENABLE'}
                       </button>
                     </div>
                   </div>
@@ -195,6 +221,13 @@ export default function BotManager() {
                   <option value="M5">M5</option>
                   <option value="M15">M15</option>
                   <option value="H1">H1</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-muted mb-1">Strategy</label>
+                <select value={editBot.strategy_type} onChange={(e) => setEditBot({ ...editBot, strategy_type: e.target.value })}
+                  className="w-full px-3 py-2 bg-surface-elevated-dark border border-hairline-on-dark rounded text-sm text-body focus:outline-none focus:border-primary">
+                  {strategies.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </div>
             </div>

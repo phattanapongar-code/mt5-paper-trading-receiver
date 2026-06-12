@@ -21,7 +21,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false)
       return
     }
-    client.get('/state').then(() => {
+    client.get('/bots').then(() => {
       setIsAuthenticated(true)
     }).catch(() => {
       clearAuth()
@@ -32,7 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (username: string, password: string) => {
     setAuth(username, password)
-    const res = await client.get('/state')
+    const res = await client.get('/bots')
     if (res.status === 200) {
       persistAuth()
       setIsAuthenticated(true)

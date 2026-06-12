@@ -1,9 +1,13 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import client from '../api/client'
-import type { PaperAccount } from '../types/api'
+import { useBotContext } from '../context/BotContext'
+import type { BotState, Wallet } from '../types/api'
 
 export default function Trade() {
-  const [paper, setPaper] = useState<PaperAccount | null>(null)
+  const { selectedBot, allBots } = useBotContext()
+  const [selectedBotId, setSelectedBotId] = useState<number>(selectedBot?.id ?? 1)
+  const [botState, setBotState] = useState<BotState | null>(null)
+  const [wallet, setWallet] = useState<Wallet | null>(null)
   const [loading, setLoading] = useState(true)
   const [form, setForm] = useState({
     side: 'buy',
@@ -13,15 +17,28 @@ export default function Trade() {
     note: 'manual',
   })
 
+  useEffect(() => {
+    if (selectedBot) setSelectedBotId(selectedBot.id)
+  }, [selectedBot])
+
+  const isFollowingSidebar = useMemo(
+    () => selectedBot?.id === selectedBotId,
+    [selectedBot, selectedBotId],
+  )
+
   const fetchData = useCallback(async () => {
     try {
-      const res = await client.get<{ paper: PaperAccount }>('/state')
-      setPaper(res.data.paper)
+      const [stateRes, walletRes] = await Promise.all([
+        client.get<BotState>(`/bots/${selectedBotId}/state`),
+        client.get<Wallet>(`/bots/${selectedBotId}/wallet`),
+      ])
+      setBotState(stateRes.data)
+      setWallet(walletRes.data)
     } catch {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [selectedBotId])
 
   useEffect(() => {
     fetchData()
@@ -35,7 +52,7 @@ export default function Trade() {
       const stopLoss = form.stop_loss ? parseFloat(form.stop_loss) : undefined
       const takeProfit = form.take_profit ? parseFloat(form.take_profit) : undefined
 
-      await client.post('/paper/open', {
+      await client.post(`/bots/${selectedBotId}/open`, {
         side: form.side,
         lot: parseFloat(form.lot.toFixed(2)),
         stop_loss: stopLoss,
@@ -55,17 +72,17 @@ export default function Trade() {
       console.error('Open position failed:', err)
       alert('Failed to open position: ' + (err instanceof Error ? err.message : 'Unknown error'))
     }
-  }, [form, fetchData])
+  }, [form, selectedBotId, fetchData])
 
   const handleClose = useCallback(async () => {
     try {
-      await client.post('/paper/close', { note: 'manual_close' })
+      await client.post(`/bots/${selectedBotId}/close`, { note: 'manual_close' })
       fetchData()
     } catch (err) {
       console.error('Close position failed:', err)
       alert('Failed to close position: ' + (err instanceof Error ? err.message : 'Unknown error'))
     }
-  }, [fetchData])
+  }, [selectedBotId, fetchData])
 
   if (loading) {
     return (
@@ -75,9 +92,29 @@ export default function Trade() {
     )
   }
 
+  const position = botState?.position ?? null
+  const balance = wallet?.balance ?? 0
+  const realizedPnl = wallet?.realized_pnl ?? 0
+
   return (
     <div className="p-6 space-y-6">
-      <h1 className="text-lg font-semibold text-body">Manual Trading</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-semibold text-body">Manual Trading</h1>
+        <div className="flex items-center gap-2">
+          {!isFollowingSidebar && selectedBot && (
+            <span className="text-[10px] text-primary/70 font-mono bg-primary/5 px-1.5 py-0.5 rounded">Override</span>
+          )}
+          <select
+            value={selectedBotId}
+            onChange={(e) => setSelectedBotId(Number(e.target.value))}
+            className="px-2 py-1.5 text-xs bg-surface-elevated-dark border border-hairline-on-dark rounded text-body focus:outline-none focus:border-primary"
+          >
+            {allBots.map((b) => (
+              <option key={b.id} value={b.id}>{b.name} (#{b.id})</option>
+            ))}
+          </select>
+        </div>
+      </div>
 
       <section className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-4">
         <h2 className="text-sm font-semibold text-body mb-3">Open Position</h2>
@@ -142,36 +179,36 @@ export default function Trade() {
           </div>
           <button
             type="submit"
-            disabled={!!(paper?.open_position)}
+            disabled={!!position}
             className="w-full py-2 bg-trading-up/10 border border-trading-up/50 text-trading-up rounded-md text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {paper?.open_position ? 'Position Already Open' : 'Open Position'}
+            {position ? 'Position Already Open' : 'Open Position'}
           </button>
         </form>
       </section>
 
-      {paper?.open_position && (
+      {position && (
         <section className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-4">
           <h2 className="text-sm font-semibold text-body mb-3">Current Position</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
             <div>
               <span className="text-muted text-xs">Side</span>
-              <p className={`font-mono font-semibold ${paper.open_position.side === 'buy' ? 'text-trading-up' : 'text-trading-down'}`}>
-                {paper.open_position.side.toUpperCase()}
+              <p className={`font-mono font-semibold ${position.side === 'buy' ? 'text-trading-up' : 'text-trading-down'}`}>
+                {position.side.toUpperCase()}
               </p>
             </div>
             <div>
               <span className="text-muted text-xs">Lot</span>
-              <p className="font-mono">{paper.open_position.lot}</p>
+              <p className="font-mono">{position.lot}</p>
             </div>
             <div>
               <span className="text-muted text-xs">Entry</span>
-              <p className="font-mono">{paper.open_position.entry.toFixed(2)}</p>
+              <p className="font-mono">{position.entry.toFixed(2)}</p>
             </div>
             <div>
               <span className="text-muted text-xs">PnL (unrealized)</span>
-              <p className={`font-mono ${paper.open_position.status === 'open' ? (paper?.open_position.status === 'open' ? 'text-trading-up' : 'text-trading-down') : 'text-muted'}`}>
-                {paper.open_position.status === 'open' ? '—' : '—'}
+              <p className={`font-mono ${(position.pnl ?? 0) >= 0 ? 'text-trading-up' : 'text-trading-down'}`}>
+                {(position.pnl ?? 0) >= 0 ? '+' : ''}${(position.pnl ?? 0).toFixed(2)}
               </p>
             </div>
           </div>
@@ -187,20 +224,26 @@ export default function Trade() {
       )}
 
       <section className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-4">
-        <h2 className="text-sm font-semibold text-body mb-3">Account Status</h2>
+        <h2 className="text-sm font-semibold text-body mb-3">Wallet — {allBots.find(b => b.id === selectedBotId)?.name ?? `#${selectedBotId}`}</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
           <div>
             <span className="text-muted text-xs">Balance</span>
-            <p className="font-mono text-lg text-primary font-semibold">${paper?.balance.toFixed(2) ?? '—'}</p>
-          </div>
-          <div>
-            <span className="text-muted text-xs">Equity</span>
-            <p className="font-mono text-lg text-primary font-semibold">${paper?.equity.toFixed(2) ?? '—'}</p>
+            <p className="font-mono text-lg text-primary font-semibold">${balance.toFixed(2)}</p>
           </div>
           <div>
             <span className="text-muted text-xs">Realized PnL</span>
-            <p className={`font-mono text-lg ${paper?.realized_pnl !== undefined ? (paper.realized_pnl >= 0 ? 'text-trading-up' : 'text-trading-down') : 'text-muted'}`}>
-              {paper?.realized_pnl !== undefined ? (paper.realized_pnl >= 0 ? '+' : '') + `$${paper.realized_pnl.toFixed(2)}` : '—'}
+            <p className={`font-mono text-lg font-semibold ${realizedPnl >= 0 ? 'text-trading-up' : 'text-trading-down'}`}>
+              {realizedPnl >= 0 ? '+' : ''}${realizedPnl.toFixed(2)}
+            </p>
+          </div>
+          <div>
+            <span className="text-muted text-xs">Trend</span>
+            <p className="font-mono text-lg text-body">{botState?.runtime?.latest_trend ?? '—'}</p>
+          </div>
+          <div>
+            <span className="text-muted text-xs">Bot Status</span>
+            <p className={`font-mono text-lg ${botState?.bot?.enabled ? 'text-trading-up' : 'text-trading-down'}`}>
+              {botState?.bot?.enabled ? 'ON' : 'OFF'}
             </p>
           </div>
         </div>

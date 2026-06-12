@@ -24,18 +24,22 @@ export default function BotDetail() {
     const wins = closed.filter(t => (t.pnl ?? 0) > 0)
     const losses = closed.filter(t => (t.pnl ?? 0) < 0)
     const netPnl = closed.reduce((sum, t) => sum + (t.pnl ?? 0), 0)
+    // Trades are sorted DESC (newest first) from the API.
+    // Reverse to chronological order for correct drawdown calculation.
     let maxDrawdown = 0
-    let runningPeak = 0
-    for (const t of trades) {
-      runningPeak = Math.max(runningPeak, runningPeak + (t.pnl ?? 0))
-      maxDrawdown = Math.min(maxDrawdown, runningPeak - (runningPeak + (t.pnl ?? 0)))
+    let cumulative = 0
+    let peak = 0
+    for (const t of [...trades].reverse()) {
+      cumulative += (t.pnl ?? 0)
+      peak = Math.max(peak, cumulative)
+      maxDrawdown = Math.max(maxDrawdown, peak - cumulative)
     }
     return {
       closed_trades: closed.length,
       wins: wins.length,
       losses: losses.length,
       net_pnl: netPnl,
-      max_drawdown_usd: -maxDrawdown,
+      max_drawdown_usd: maxDrawdown,
     }
   }, [trades])
 

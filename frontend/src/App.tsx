@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
+import { BotProvider } from './context/BotContext'
 import Layout from './components/Layout'
 import { lazy, Suspense } from 'react'
 
@@ -13,7 +14,6 @@ const Signals = lazy(() => import('./pages/Signals'))
 const Performance = lazy(() => import('./pages/Performance'))
 const TradeHistory = lazy(() => import('./pages/TradeHistory'))
 const Trade = lazy(() => import('./pages/Trade'))
-const Wallets = lazy(() => import('./pages/Wallets'))
 const MarketStructure = lazy(() => import('./pages/MarketStructure'))
 const PendingOrders = lazy(() => import('./pages/PendingOrders'))
 const Settings = lazy(() => import('./pages/Settings'))
@@ -76,7 +76,6 @@ function AppRoutes() {
         <Route path="/performance" element={<Performance />} />
         <Route path="/trades" element={<TradeHistory />} />
         <Route path="/trade" element={<Trade />} />
-        <Route path="/wallets" element={<Wallets />} />
         <Route path="/market-structure" element={<MarketStructure />} />
         <Route path="/pending-orders" element={<PendingOrders />} />
         <Route path="/settings" element={<Settings />} />
@@ -90,7 +89,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AppRoutes />
+        <BotProvider>
+          <AppRoutes />
+        </BotProvider>
       </AuthProvider>
     </BrowserRouter>
   )

@@ -1,23 +1,23 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import client from '../api/client'
-import type { ExecutionState, Health, HistoryStatus } from '../types/api'
+import type { Health, HistoryStatus, Bot } from '../types/api'
 
 const log = (...args: unknown[]) => console.log('[Settings]', ...args)
 
 export default function Settings() {
-  const [exec, setExec] = useState<ExecutionState | null>(null)
   const [health, setHealth] = useState<Health | null>(null)
   const [historyStatus, setHistoryStatus] = useState<HistoryStatus | null>(null)
+  const [bots, setBots] = useState<Bot[]>([])
   const [loading, setLoading] = useState(true)
   const historyFileInputRef = useRef<HTMLInputElement>(null)
 
   const fetchData = useCallback(async () => {
     try {
-      const [execRes, historyStatusRes] = await Promise.all([
-        client.get<ExecutionState>('/strategy/status'),
+      const [historyStatusRes, botsRes] = await Promise.all([
         client.get<HistoryStatus>('/history/status'),
+        client.get<Bot[]>('/bots'),
       ])
-      setExec(execRes.data)
+      setBots(botsRes.data)
       setHistoryStatus(historyStatusRes.data)
       try {
         const healthRes = await fetch('/health')
@@ -30,19 +30,6 @@ export default function Settings() {
       setLoading(false)
     }
   }, [])
-
-  const toggleExecution = useCallback(async (enable: boolean) => {
-    const endpoint = enable ? 'enable' : 'disable'
-    await client.post(`/strategy/${endpoint}`)
-    fetchData()
-  }, [fetchData])
-
-  const resetPaper = useCallback(async () => {
-    if (confirm('Reset paper account? This will delete all trades.')) {
-      await client.post('/paper/reset')
-      fetchData()
-    }
-  }, [fetchData])
 
   const handleHistoryImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -89,30 +76,11 @@ export default function Settings() {
     )
   }
 
+  const enabledBots = bots.filter((b) => b.enabled)
+
   return (
     <div className="p-6 space-y-6 max-w-2xl">
       <h1 className="text-lg font-semibold text-body">Settings</h1>
-
-      <section className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-4">
-        <h2 className="text-sm font-semibold text-body mb-1">Auto Paper Execution</h2>
-        <p className="text-xs text-muted mb-3">Automatically fills staged pending orders into the paper account (paper-only, never sends to MT5)</p>
-        <div className="flex items-center gap-3">
-          <div className={`px-3 py-1.5 text-xs rounded-md font-semibold border ${exec?.enabled ? 'bg-trading-up/10 text-trading-up border border-trading-up/50' : 'bg-surface-elevated-dark text-muted border border-surface-400'}`}>
-            {exec?.enabled ? 'ENABLED' : 'DISABLED'}
-          </div>
-          <button
-            onClick={() => toggleExecution(!exec?.enabled)}
-            className={`px-3 py-1.5 text-xs rounded-md font-semibold transition-colors cursor-pointer ${
-              exec?.enabled
-                ? 'bg-trading-down/10 text-trading-down border border-trading-down/50 hover:bg-trading-down/20'
-                : 'bg-trading-up/10 text-trading-up border border-trading-up/50 hover:bg-trading-up/20'
-            }`}
-            title={exec?.enabled ? "Click to disable auto execution" : "Click to enable auto execution"}
-          >
-            {exec?.enabled ? 'DISABLE AUTO' : 'ENABLE AUTO'}
-          </button>
-        </div>
-      </section>
 
       <section className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-4">
         <h2 className="text-sm font-semibold text-body mb-1">System</h2>
@@ -140,13 +108,10 @@ export default function Settings() {
             </div>
           </div>
         )}
-        <div className="flex gap-2">
-          <button
-            onClick={resetPaper}
-            className="px-3 py-1.5 text-xs rounded-md bg-trading-down/10 text-trading-down border border-trading-down/50 hover:bg-trading-down/20 transition-colors cursor-pointer"
-          >
-            Reset Paper Account
-          </button>
+        <div className="flex items-center gap-3 text-xs text-muted">
+          <span>{bots.length} bots total</span>
+          <span>·</span>
+          <span className="text-trading-up">{enabledBots.length} enabled</span>
         </div>
       </section>
 
@@ -213,7 +178,7 @@ export default function Settings() {
         <h2 className="text-sm font-semibold text-body mb-1">About</h2>
         <div className="space-y-1 text-xs">
           <p className="text-muted">
-            MT5 Paper Trading Receiver v1.2 — Multi-bot paper trading engine
+            MT5 Paper Trading Receiver v2.1 — Multi-bot paper trading engine
           </p>
           <p className="text-muted">
             All trading is simulated in-memory and persisted to SQLite. No real orders are sent to MT5.
