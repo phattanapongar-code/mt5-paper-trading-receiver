@@ -5,6 +5,7 @@ from app.multibot import db, service
 from app.multibot.models import BotCreate, BotParameterUpdate, CloneBotRequest, ProfileCreate, RenameBotRequest, UpdateBotRequest, WalletResetRequest
 from app.multibot.runtime import hub
 from app.multibot.strategies import list_strategies
+from app import storage
 
 router = APIRouter(tags=["multi-bot"])
 db.migrate()
@@ -174,6 +175,43 @@ def reset_wallet(bot_id: int, payload: WalletResetRequest):
     if result is None:
         raise HTTPException(404, "bot not found")
     return result
+
+
+@router.get("/api/bots/{bot_id}/costs")
+def bot_costs(bot_id: int):
+    """Get execution cost breakdown for a bot (all-time)."""
+    wallet = storage.query_one(
+        "SELECT total_commission, total_spread_cost, total_slippage FROM wallets WHERE bot_id=?",
+        (bot_id,),
+    )
+    if wallet is None:
+        raise HTTPException(404, "bot not found")
+    closed = storage.query_all(
+        "SELECT commission, slippage, spread_cost, pnl, net_pnl FROM bot_positions WHERE bot_id=? AND status='closed'",
+        (bot_id,),
+    )
+    costs_by_trade = [
+        {
+            "commission": float(c.get("commission") or 0),
+            "slippage": float(c.get("slippage") or 0),
+            "spread_cost": float(c.get("spread_cost") or 0),
+            "pnl_gross": float(c.get("pnl") or 0),
+            "pnl_net": float(c.get("net_pnl") or c.get("pnl") or 0),
+        }
+        for c in closed
+    ]
+    return {
+        "total_commission": round(float(wallet["total_commission"] or 0), 2),
+        "total_spread_cost": round(float(wallet["total_spread_cost"] or 0), 2),
+        "total_slippage": round(float(wallet["total_slippage"] or 0), 2),
+        "total_costs": round(
+            float(wallet["total_commission"] or 0)
+            + float(wallet["total_spread_cost"] or 0)
+            + float(wallet["total_slippage"] or 0),
+            2,
+        ),
+        "trades_with_costs": costs_by_trade,
+    }
 
 
 @router.get("/api/compare")

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import math
+import random
 import time
 from typing import Any
 
@@ -14,6 +16,45 @@ def _decode(value: str | None) -> dict[str, Any]:
         return json.loads(value or "{}")
     except Exception:
         return {}
+
+
+# ── Execution Realism Helpers (shared with runtime) ──
+
+def _gaussian_slippage(sigma_pips: float, max_pips: float) -> float:
+    raw = random.gauss(0, sigma_pips)
+    return round(max(-max_pips, min(max_pips, raw)), 4)
+
+
+def _pip_value(symbol: str) -> float:
+    s = symbol.upper()
+    if "JPY" in s:
+        return 0.01
+    if "XAU" in s or "XAG" in s:
+        return 0.1
+    return 0.0001
+
+
+def _apply_exit_slippage(price: float, side: str, slippage_pts: float) -> float:
+    if slippage_pts == 0:
+        return price
+    if side == "buy":
+        return price - abs(slippage_pts)
+    return price + abs(slippage_pts)
+
+
+def _apply_entry_slippage(price: float, side: str, slippage_pts: float) -> float:
+    if slippage_pts == 0:
+        return price
+    if side == "buy":
+        return price + abs(slippage_pts)
+    return price - abs(slippage_pts)
+
+
+def _compute_commission(lot: float, entry_price: float, contract_size: float, params: dict[str, Any]) -> float:
+    comm_type = str(params.get("commission_type", "fixed"))
+    if comm_type == "percentage":
+        return round(lot * contract_size * entry_price * float(params.get("commission_pct", 0)), 2)
+    return round(lot * float(params.get("commission_per_lot", 0)), 2)
 
 
 def list_profiles() -> list[dict[str, Any]]:
@@ -53,6 +94,7 @@ def list_bots(profile_id: int | None = None) -> list[dict[str, Any]]:
         SELECT b.*, p.name AS profile_name, p.enabled AS profile_enabled,
                w.id AS wallet_id, w.initial_balance, w.balance, w.realized_pnl,
                w.currency, w.max_drawdown, w.peak_equity,
+               w.total_commission, w.total_spread_cost, w.total_slippage,
                COALESCE((SELECT COUNT(*) FROM bot_pending_orders x WHERE x.bot_id=b.id AND x.status='pending'),0) AS pending_count,
                COALESCE((SELECT COUNT(*) FROM bot_positions x WHERE x.bot_id=b.id AND x.status='open'),0) AS open_position_count,
                s.latest_trend, s.paused_reason, s.updated_at AS runtime_updated_at
@@ -135,7 +177,7 @@ def reset_wallet(bot_id: int, balance: float) -> dict[str, Any] | None:
             return None
         conn.execute("DELETE FROM bot_pending_orders WHERE bot_id=?", (bot_id,))
         conn.execute("DELETE FROM bot_positions WHERE bot_id=?", (bot_id,))
-        conn.execute("UPDATE wallets SET initial_balance=?, balance=?, realized_pnl=0, max_drawdown=0, peak_equity=?, updated_at=? WHERE bot_id=?", (balance, balance, balance, now, bot_id))
+        conn.execute("UPDATE wallets SET initial_balance=?, balance=?, realized_pnl=0, max_drawdown=0, peak_equity=?, total_commission=0, total_spread_cost=0, total_slippage=0, updated_at=? WHERE bot_id=?", (balance, balance, balance, now, bot_id))
         conn.execute("UPDATE bot_runtime_state SET consecutive_losses=0,daily_realized_pnl=0,paused_reason=NULL,updated_at=? WHERE bot_id=?", (now, bot_id))
         result = dict(conn.execute("SELECT * FROM wallets WHERE bot_id=?", (bot_id,)).fetchone())
     return result
@@ -152,11 +194,12 @@ def compare(bot_ids: list[int] | None = None) -> list[dict[str, Any]]:
         SELECT b.id AS bot_id, b.name, p.name AS profile_name, b.strategy_type, b.strategy_version,
                b.symbol, b.timeframe,
                w.initial_balance, w.balance, w.realized_pnl, w.max_drawdown,
+               w.total_commission, w.total_spread_cost, w.total_slippage,
                (SELECT COUNT(*) FROM bot_positions bp WHERE bp.bot_id=b.id AND bp.status='closed') AS closed_trades,
                (SELECT COUNT(*) FROM bot_positions bp WHERE bp.bot_id=b.id AND bp.status='open') AS open_positions,
                (SELECT COUNT(*) FROM bot_pending_orders po WHERE po.bot_id=b.id AND po.status='pending') AS pending_orders,
-               (SELECT COUNT(*) FROM bot_positions bp WHERE bp.bot_id=b.id AND bp.status='closed' AND bp.pnl>0) AS wins,
-               (SELECT COALESCE(SUM(bp.pnl),0) FROM bot_positions bp WHERE bp.bot_id=b.id AND bp.status='closed') AS net_pnl
+               (SELECT COUNT(*) FROM bot_positions bp WHERE bp.bot_id=b.id AND bp.status='closed' AND COALESCE(bp.net_pnl,bp.pnl)>0) AS wins,
+               (SELECT COALESCE(SUM(COALESCE(bp.net_pnl,bp.pnl)),0) FROM bot_positions bp WHERE bp.bot_id=b.id AND bp.status='closed') AS net_pnl
         FROM bots b JOIN profiles p ON p.id=b.profile_id JOIN wallets w ON w.bot_id=b.id
         {where} ORDER BY b.id
         """,
@@ -248,7 +291,14 @@ def open_position(bot_id: int, side: str, lot: float, stop_loss: float | None, t
     wallet = get_wallet(bot_id)
     if wallet is None:
         return None
-    entry = tick["ask"] if side == "buy" else tick["bid"]
+    params = _decode(bot.get("parameters_json", "{}"))
+    sigma = float(params.get("slippage_sigma", 0.15))
+    max_slip = float(params.get("slippage_max_pips", 0.5))
+    pip_val = _pip_value(str(bot.get("symbol", "XAUUSD")))
+    slip_pips = _gaussian_slippage(sigma, max_slip)
+    slip_pts = slip_pips * pip_val
+    raw_entry = tick["ask"] if side == "buy" else tick["bid"]
+    entry = _apply_entry_slippage(raw_entry, side, slip_pts)
     now = int(time.time())
     with storage.transaction() as conn:
         existing = conn.execute("SELECT id FROM bot_positions WHERE bot_id=? AND status='open' LIMIT 1", (bot_id,)).fetchone()
@@ -256,10 +306,11 @@ def open_position(bot_id: int, side: str, lot: float, stop_loss: float | None, t
             raise ValueError("Only one open position is allowed")
         cur = conn.execute(
             """
-            INSERT INTO bot_positions(bot_id,wallet_id,symbol,side,lot,entry,stop_loss,take_profit,status,opened_at,updated_at)
-            VALUES(?,?,?,?,?,?,?,?,'open',?,?)
+            INSERT INTO bot_positions(bot_id,wallet_id,symbol,side,lot,entry,stop_loss,take_profit,status,opened_at,updated_at,execution_detail)
+            VALUES(?,?,?,?,?,?,?,?,'open',?,?,?)
             """,
-            (bot_id, wallet["id"], tick.get("symbol", "XAUUSD"), side, lot, entry, stop_loss, take_profit, now, now),
+            (bot_id, wallet["id"], tick.get("symbol", "XAUUSD"), side, lot, entry, stop_loss, take_profit, now, now,
+             json_text({"entry_slippage_pips": slip_pips, "fill_price_raw": raw_entry})),
         )
         return dict(conn.execute("SELECT *, exit_price AS \"exit\" FROM bot_positions WHERE id=?", (cur.lastrowid,)).fetchone())
 
@@ -272,25 +323,57 @@ def close_position(bot_id: int, tick: dict[str, Any], note: str = "manual_close"
         if position is None:
             raise ValueError("No open position")
         p = dict(position)
-        exit_price = tick["bid"] if p["side"] == "buy" else tick["ask"]
-        direction = 1.0 if p["side"] == "buy" else -1.0
-        pnl = (exit_price - float(p["entry"])) * direction * float(p["lot"]) * settings.contract_size
-        risk = abs(float(p["entry"]) - float(p["stop_loss"] or p["entry"])) * float(p["lot"]) * settings.contract_size
+        bot_row = conn.execute("SELECT parameters_json FROM bots WHERE id=?", (bot_id,)).fetchone()
+        params = _decode(bot_row["parameters_json"] if bot_row else "{}")
+
+        # Get current bid/ask for spread cost
+        bid = float(tick.get("bid", 0))
+        ask = float(tick.get("ask", 0))
+        side = str(p["side"])
+        contract_size = float(params.get("contract_size", settings.contract_size))
+
+        # Compute exit slippage
+        sigma = float(params.get("slippage_sigma", 0.15))
+        max_slip = float(params.get("slippage_max_pips", 0.5))
+        pip_val = _pip_value(str(p.get("symbol", "XAUUSD")))
+        slip_pips = _gaussian_slippage(sigma, max_slip)
+        slip_pts = slip_pips * pip_val
+        raw_exit = tick["bid"] if side == "buy" else tick["ask"]
+        exit_price = _apply_exit_slippage(raw_exit, side, slip_pts)
+
+        direction = 1.0 if side == "buy" else -1.0
+        pnl = (exit_price - float(p["entry"])) * direction * float(p["lot"]) * contract_size
+        risk = abs(float(p["entry"]) - float(p["stop_loss"] or p["entry"])) * float(p["lot"]) * contract_size
         r_multiple = pnl / risk if risk > 0 else 0.0
+
+        # Execution costs
+        commission = _compute_commission(float(p["lot"]), float(p["entry"]), contract_size, params)
+        spread_cost = (ask - bid) * float(p["lot"]) * contract_size * 0.5 if (bid and ask) else 0.0
+        net_pnl = round(pnl - commission, 2)
         now = int(time.time())
 
+        execution_detail = json_text({
+            "commission": commission,
+            "slippage_pips": slip_pips,
+            "spread_cost": spread_cost,
+            "exit_price_raw": raw_exit,
+            "exit_price_adj": exit_price,
+            "pnl_gross": round(pnl, 2),
+            "pnl_net": net_pnl,
+        })
+
         conn.execute(
-            "UPDATE bot_positions SET status='closed',closed_at=?,exit_price=?,pnl=?,r_multiple=?,exit_reason=?,updated_at=? WHERE id=?",
-            (now, exit_price, pnl, r_multiple, note, now, p["id"]),
+            "UPDATE bot_positions SET status='closed',closed_at=?,exit_price=?,pnl=?,r_multiple=?,exit_reason=?,updated_at=?,commission=?,slippage=?,spread_cost=?,net_pnl=?,execution_detail=? WHERE id=?",
+            (now, exit_price, pnl, r_multiple, note, now, commission, slip_pts, spread_cost, net_pnl, execution_detail, p["id"]),
         )
         wallet = conn.execute("SELECT * FROM wallets WHERE bot_id=?", (bot_id,)).fetchone()
-        new_balance = float(wallet["balance"]) + pnl
+        new_balance = float(wallet["balance"]) + net_pnl
         peak = max(float(wallet["peak_equity"]), new_balance)
         drawdown = ((peak - new_balance) / peak) if peak > 0 else 0.0
         max_dd = max(float(wallet["max_drawdown"]), drawdown)
         conn.execute(
-            "UPDATE wallets SET balance=?,realized_pnl=realized_pnl+?,peak_equity=?,max_drawdown=?,updated_at=? WHERE bot_id=?",
-            (new_balance, pnl, peak, max_dd, now, bot_id),
+            "UPDATE wallets SET balance=?,realized_pnl=realized_pnl+?,peak_equity=?,max_drawdown=?,total_commission=total_commission+?,total_spread_cost=total_spread_cost+?,total_slippage=total_slippage+?,updated_at=? WHERE bot_id=?",
+            (new_balance, net_pnl, peak, max_dd, commission, spread_cost, abs(slip_pts * float(p["lot"]) * contract_size), now, bot_id),
         )
         return dict(conn.execute("SELECT *, exit_price AS \"exit\" FROM bot_positions WHERE id=?", (p["id"],)).fetchone())
 
@@ -303,28 +386,36 @@ def bot_stats_summary(bot_id: int) -> dict[str, Any]:
         (bot_id,),
     )
     pnls = [float(t.get("pnl") or 0.0) for t in closed]
+    net_pnls = [float(t.get("net_pnl") or t.get("pnl") or 0.0) for t in closed]
     rs = [float(t.get("r_multiple") or 0.0) for t in closed if t.get("r_multiple") is not None]
-    wins = [p for p in pnls if p > 0]
-    losses = [p for p in pnls if p < 0]
+    wins = [p for p in net_pnls if p > 0]
+    losses = [p for p in net_pnls if p < 0]
     equity = 0.0
     peak = 0.0
     max_drawdown = 0.0
-    for pnl in pnls:
+    for pnl in net_pnls:
         equity += pnl
         peak = max(peak, equity)
         max_drawdown = max(max_drawdown, peak - equity)
     gross_profit = sum(wins)
     gross_loss = abs(sum(losses))
     wallet = storage.query_one("SELECT * FROM wallets WHERE bot_id=?", (bot_id,)) or {}
+    total_commission = sum(float(t.get("commission") or 0.0) for t in closed)
+    total_spread_cost = sum(float(t.get("spread_cost") or 0.0) for t in closed)
+    total_slippage = sum(abs(float(t.get("slippage") or 0.0)) for t in closed)
     return {
         "closed_trades": len(closed),
         "wins": len(wins),
         "losses": len(losses),
         "win_rate": (len(wins) / len(closed)) if closed else 0.0,
-        "net_pnl": sum(pnls),
+        "gross_pnl": round(sum(pnls), 2),
+        "net_pnl": round(sum(net_pnls), 2),
+        "total_commission": round(total_commission, 2),
+        "total_spread_cost": round(total_spread_cost, 2),
+        "total_slippage": round(total_slippage, 2),
         "profit_factor": (gross_profit / gross_loss) if gross_loss > 0 else None,
         "average_r": (sum(rs) / len(rs)) if rs else 0.0,
-        "max_drawdown_usd": max_drawdown,
+        "max_drawdown_usd": round(max_drawdown, 2),
         "balance": float(wallet.get("balance") or 0.0),
         "realized_pnl": float(wallet.get("realized_pnl") or 0.0),
     }

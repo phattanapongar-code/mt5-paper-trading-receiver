@@ -33,6 +33,16 @@ def default_parameters() -> dict[str, Any]:
         "trail_activation_pips": 10,
         "trail_distance_pips": 5,
         "trail_step_pips": 1,
+        "commission_per_lot": settings.commission_per_lot,
+        "commission_type": settings.commission_type,
+        "commission_pct": settings.commission_pct,
+        "slippage_sigma": settings.slippage_sigma,
+        "slippage_max_pips": settings.slippage_max_pips,
+        "latency_ms_min": settings.latency_ms_min,
+        "latency_ms_max": settings.latency_ms_max,
+        "gap_check_enabled": settings.gap_check_enabled,
+        "gap_max_percent": settings.gap_max_percent,
+        "gap_threshold_seconds": settings.gap_threshold_seconds,
     }
 
 
@@ -163,12 +173,32 @@ def migrate() -> dict[str, Any]:
         existing_bpo = {row["name"] for row in conn.execute("PRAGMA table_info(bot_pending_orders)").fetchall()}
         if "timeframe" not in existing_bpo:
             conn.execute("ALTER TABLE bot_pending_orders ADD COLUMN timeframe TEXT NOT NULL DEFAULT 'M15'")
-        if "updated_at" not in existing_bpo:
+        if                 "updated_at" not in existing_bpo:
             conn.execute("ALTER TABLE bot_pending_orders ADD COLUMN updated_at INTEGER")
 
         existing_bp = {row["name"] for row in conn.execute("PRAGMA table_info(bot_positions)").fetchall()}
         if "updated_at" not in existing_bp:
             conn.execute("ALTER TABLE bot_positions ADD COLUMN updated_at INTEGER")
+
+        # Upgrade v2.5 — execution realism columns
+        if "commission" not in existing_bp:
+            conn.execute("ALTER TABLE bot_positions ADD COLUMN commission REAL DEFAULT 0")
+        if "slippage" not in existing_bp:
+            conn.execute("ALTER TABLE bot_positions ADD COLUMN slippage REAL DEFAULT 0")
+        if "spread_cost" not in existing_bp:
+            conn.execute("ALTER TABLE bot_positions ADD COLUMN spread_cost REAL DEFAULT 0")
+        if "net_pnl" not in existing_bp:
+            conn.execute("ALTER TABLE bot_positions ADD COLUMN net_pnl REAL")
+        if "execution_detail" not in existing_bp:
+            conn.execute("ALTER TABLE bot_positions ADD COLUMN execution_detail TEXT")
+
+        existing_w = {row["name"] for row in conn.execute("PRAGMA table_info(wallets)").fetchall()}
+        if "total_commission" not in existing_w:
+            conn.execute("ALTER TABLE wallets ADD COLUMN total_commission REAL DEFAULT 0")
+        if "total_spread_cost" not in existing_w:
+            conn.execute("ALTER TABLE wallets ADD COLUMN total_spread_cost REAL DEFAULT 0")
+        if "total_slippage" not in existing_w:
+            conn.execute("ALTER TABLE wallets ADD COLUMN total_slippage REAL DEFAULT 0")
 
         conn.execute(
             "INSERT OR IGNORE INTO profiles(name, description, enabled, created_at, updated_at) VALUES(?, ?, 1, ?, ?)",
@@ -254,7 +284,7 @@ def migrate() -> dict[str, Any]:
                 )
 
         conn.execute("INSERT OR IGNORE INTO bot_runtime_state(bot_id, updated_at) VALUES(?, ?)", (bot_id, now))
-        conn.execute("INSERT OR REPLACE INTO multibot_runtime_settings(key, value, updated_at) VALUES('schema_version', '1.2', ?)", (now,))
+        conn.execute("INSERT OR REPLACE INTO multibot_runtime_settings(key, value, updated_at) VALUES('schema_version', '2.5', ?)", (now,))
     return get_status()
 
 

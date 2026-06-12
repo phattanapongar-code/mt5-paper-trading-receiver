@@ -42,5 +42,17 @@ class Settings:
     dashboard_username: str = os.getenv("DASHBOARD_USERNAME", "admin")
     dashboard_password: str = os.getenv("DASHBOARD_PASSWORD", "admin")
 
+    # ── Execution Realism (Prop Firm Grade) ──
+    commission_per_lot: float = float(os.getenv("COMMISSION_PER_LOT", "3.5"))
+    commission_type: str = os.getenv("COMMISSION_TYPE", "fixed")
+    commission_pct: float = float(os.getenv("COMMISSION_PCT", "0.0"))
+    slippage_sigma: float = float(os.getenv("SLIPPAGE_SIGMA", "0.15"))
+    slippage_max_pips: float = float(os.getenv("SLIPPAGE_MAX_PIPS", "0.5"))
+    latency_ms_min: int = int(os.getenv("LATENCY_MS_MIN", "50"))
+    latency_ms_max: int = int(os.getenv("LATENCY_MS_MAX", "200"))
+    gap_check_enabled: bool = _bool("GAP_CHECK_ENABLED", "false")
+    gap_max_percent: float = float(os.getenv("GAP_MAX_PERCENT", "0.5"))
+    gap_threshold_seconds: int = int(os.getenv("GAP_THRESHOLD_SECONDS", "3600"))
+
 
 settings = Settings()
