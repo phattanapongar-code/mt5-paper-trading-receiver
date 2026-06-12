@@ -6,7 +6,7 @@ import type { BotState, Wallet } from '../types/api'
 
 export default function Trade() {
   const { selectedBot, allBots } = useBotContext()
-  const [selectedBotId, setSelectedBotId] = useState<number>(selectedBot?.id ?? 1)
+  const [selectedBotId, setSelectedBotId] = useState<number | null>(selectedBot?.id ?? null)
   const [botState, setBotState] = useState<BotState | null>(null)
   const [wallet, setWallet] = useState<Wallet | null>(null)
   const [health, setHealth] = useState<{ latest_tick: { bid: number; ask: number } } | null>(null)
@@ -30,6 +30,12 @@ export default function Trade() {
   )
 
   const fetchData = useCallback(async () => {
+    if (!selectedBotId) {
+      setBotState(null)
+      setWallet(null)
+      setLoading(false)
+      return
+    }
     try {
       const [stateRes, walletRes, healthRes] = await Promise.all([
         client.get<BotState>(`/bots/${selectedBotId}/state`),
@@ -53,6 +59,7 @@ export default function Trade() {
 
   const handleOpen = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!selectedBotId) return
     try {
       const stopLoss = form.stop_loss ? parseFloat(form.stop_loss) : undefined
       const takeProfit = form.take_profit ? parseFloat(form.take_profit) : undefined
@@ -80,6 +87,7 @@ export default function Trade() {
   }, [form, selectedBotId, fetchData])
 
   const handleClose = useCallback(async () => {
+    if (!selectedBotId) return
     try {
       await client.post(`/bots/${selectedBotId}/close`, { note: 'manual_close' })
       fetchData()
@@ -109,8 +117,8 @@ export default function Trade() {
             <span className="text-[10px] text-primary/70 font-mono bg-primary/5 px-1.5 py-0.5 rounded">Override</span>
           )}
           <select
-            value={selectedBotId}
-            onChange={(e) => setSelectedBotId(Number(e.target.value))}
+            value={selectedBotId ?? ''}
+            onChange={(e) => setSelectedBotId(e.target.value ? Number(e.target.value) : null)}
             className="px-2 py-1.5 text-xs bg-surface-elevated-dark border border-hairline-on-dark rounded text-body focus:outline-none focus:border-primary"
           >
             {allBots.map((b) => (
@@ -254,7 +262,9 @@ export default function Trade() {
       )}
 
       <section className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-4">
-        <h2 className="text-sm font-semibold text-body mb-3">Wallet — {allBots.find(b => b.id === selectedBotId)?.name ?? `#${selectedBotId}`}</h2>
+        <h2 className="text-sm font-semibold text-body mb-3">
+          Wallet — {allBots.find(b => b.id === selectedBotId)?.name ?? (selectedBotId ? `#${selectedBotId}` : 'None selected')}
+        </h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
           <div>
             <span className="text-muted text-xs">Balance</span>
