@@ -347,13 +347,13 @@ def _evaluate_bot(conn, bot: dict[str, Any], tick: dict[str, Any], now: int) -> 
         return
     daily_limit = float(wallet["initial_balance"]) * float(params.get("daily_loss_limit_percent", 0.03))
     if state and float(state["daily_realized_pnl"] or 0.0) <= -daily_limit:
-        if state.get("paused_reason") != "daily_loss_limit":
+        if state["paused_reason"] != "daily_loss_limit":
             conn.execute("UPDATE bot_runtime_state SET paused_reason='daily_loss_limit',updated_at=? WHERE bot_id=?", (now, bot_id))
             alert_engine.notify_risk(bot.get("name", "?"), "Daily Loss Limit Hit",
                 f"Daily PnL: {float(state['daily_realized_pnl'] or 0.0):.2f} (limit: {float(params.get('daily_loss_limit_percent', 0.03)) * 100:.0f}%)\nBot PAUSED until next trading day")
         return
     if state and int(state["consecutive_losses"] or 0) >= int(params.get("max_consecutive_losses", 3)):
-        if state.get("paused_reason") != "max_consecutive_losses":
+        if state["paused_reason"] != "max_consecutive_losses":
             conn.execute("UPDATE bot_runtime_state SET paused_reason='max_consecutive_losses',updated_at=? WHERE bot_id=?", (now, bot_id))
             alert_engine.notify_risk(bot.get("name", "?"), "Max Consecutive Losses",
                 f"{int(state['consecutive_losses'] or 0)} losses in a row \u2192 PAUSED")
