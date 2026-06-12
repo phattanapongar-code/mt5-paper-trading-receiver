@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import time
 
 import aiohttp
 
@@ -12,6 +14,8 @@ class AlertEngine:
         self.bot_token: str | None = None
         self.chat_id: str | None = None
         self.enabled: bool = False
+        self._last_sent: float = 0.0
+        self._rate_limit_until: float = 0.0
 
     def configure(self, bot_token: str, chat_id: str, enabled: bool = True) -> None:
         self.bot_token = bot_token
@@ -35,6 +39,13 @@ class AlertEngine:
                         if not ok:
                             text = await resp.text()
                             logger.warning("Telegram API error %s (attempt %d/%d): %s", resp.status, attempt + 1, 1 + retries, text)
+                            if resp.status == 429:
+                                try:
+                                    body = json.loads(text)
+                                    retry_after = body.get("parameters", {}).get("retry_after", 5)
+                                    self._rate_limit_until = time.time() + retry_after
+                                except Exception:
+                                    self._rate_limit_until = time.time() + 5
                         if ok:
                             return True
             except Exception as e:
@@ -104,6 +115,13 @@ class AlertEngine:
 
 
     def _fire(self, message: str) -> None:
+        now = time.time()
+        if now < self._rate_limit_until:
+            logger.warning("Alert dropped: rate limited for another %.0fs", self._rate_limit_until - now)
+            return
+        if now - self._last_sent < 1.0:
+            return
+        self._last_sent = now
         try:
             asyncio.ensure_future(self.send(message))
         except RuntimeError:

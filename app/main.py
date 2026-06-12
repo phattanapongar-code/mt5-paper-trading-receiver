@@ -83,7 +83,8 @@ last_seq: int | None = None
 ws_clients: set[WebSocket] = set()
 
 # Health alert state tracking
-_was_sender_online: bool | None = None
+_was_sender_online: bool = False
+_last_health_alert: float = 0.0
 
 
 async def broadcast(payload: dict[str, Any]) -> None:
@@ -135,10 +136,12 @@ async def receive_price(payload: TickPayload) -> dict[str, Any]:
     structure_refresh = structure.refresh_timeframes(payload.symbol, closed_timeframes) if closed_timeframes else {}
     order_block_refresh = order_blocks.refresh_timeframes(payload.symbol, closed_timeframes) if closed_timeframes else {}
 
-    # Health alert: sender just came back online
-    global _was_sender_online
-    if _was_sender_online is False:
-        asyncio.create_task(alert_engine.notify_health("online", f"Sender reconnected\nLast tick: {now}"))
+    # Health alert: sender just came back online (max once per 60s)
+    global _was_sender_online, _last_health_alert
+    if not _was_sender_online:
+        if now - _last_health_alert >= 60:
+            _last_health_alert = now
+            asyncio.create_task(alert_engine.notify_health("online", f"Sender reconnected\nLast tick: {now}"))
     _was_sender_online = True
 
     # All bots (including Paper Trading) are evaluated by the multibot runtime
