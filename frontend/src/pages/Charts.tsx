@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createChart, ColorType, createSeriesMarkers, type IChartApi, type ISeriesApi, type ISeriesMarkersPluginApi, type CandlestickData, type LineData, type UTCTimestamp, type Time, CandlestickSeries, LineSeries } from 'lightweight-charts'
 import client from '../api/client'
+import { useWebSocket } from '../api/ws'
 import { useBotContext } from '../context/BotContext'
 import { useDrawingTools } from '../components/DrawingTools'
 import LoadingSpinner from '../components/LoadingSpinner'
-import type { Candle, Indicators, OrderBlock, MarketStructureState } from '../types/api'
+import type { Candle, Indicators, OrderBlock, MarketStructureState, Trade } from '../types/api'
 
 interface CandlePendingOrder {
   id: number; bot_id?: number; side: string; entry: number; stop_loss: number; take_profit: number
@@ -32,22 +33,10 @@ export default function Charts() {
   const [structure, setStructure] = useState<MarketStructureState | null>(null)
   const [pending, setPending] = useState<CandlePendingOrder | null>(null)
   const [refreshing, setRefreshing] = useState(false)
-  const [visibleIndicators, setVisibleIndicators] = useState<Record<string, boolean>>({ rsi: false, macd: false, bb: false })
-  const rsiSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
-  const rsiOverboughtRef = useRef<ISeriesApi<'Line'> | null>(null)
-  const rsiOversoldRef = useRef<ISeriesApi<'Line'> | null>(null)
-  const macdLineRef = useRef<ISeriesApi<'Line'> | null>(null)
-  const macdSignalRef = useRef<ISeriesApi<'Line'> | null>(null)
-  const bbUpperRef = useRef<ISeriesApi<'Line'> | null>(null)
-  const bbLowerRef = useRef<ISeriesApi<'Line'> | null>(null)
-  const bbMiddleRef = useRef<ISeriesApi<'Line'> | null>(null)
-
-  const toggleIndicator = useCallback((key: string) => {
-    setVisibleIndicators(prev => {
-      const next = { ...prev, [key]: !prev[key] }
-      return next
-    })
-  }, [])
+  const [showDrawTools, setShowDrawTools] = useState(false)
+  const [trades, setTrades] = useState<Trade[]>([])
+  const debounceWsRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastCandleRef = useRef<{ time: UTCTimestamp; high: number; low: number } | null>(null)
 
   const {
     activeTool, setActiveTool, color, setColor, selectedId, drawingCount,
@@ -72,6 +61,13 @@ export default function Charts() {
       setObs(obRes.data)
       setStructure(structRes.data)
       setPending(pendingRes.data[0] ?? null)
+
+      if (pendingBotId) {
+        const tr = await client.get<Trade[]>(`/bots/${pendingBotId}/trades`, { params: { limit: 50 } })
+        setTrades(tr.data)
+      } else {
+        setTrades([])
+      }
     } catch {
       // ignore
     } finally {
@@ -79,11 +75,35 @@ export default function Charts() {
     }
   }, [pendingBotId])
 
+  const wsHandler = useCallback((msg: any) => {
+    if (msg?.tick?.mid && candleSeriesRef.current && lastCandleRef.current) {
+      const lc = lastCandleRef.current
+      candleSeriesRef.current.update({
+        time: lc.time,
+        close: msg.tick.mid,
+        high: Math.max(lc.high, msg.tick.mid),
+        low: Math.min(lc.low, msg.tick.mid),
+      })
+    }
+    if (debounceWsRef.current) clearTimeout(debounceWsRef.current)
+    debounceWsRef.current = setTimeout(() => {
+      fetchData(timeframeRef.current)
+    }, 2000)
+  }, [fetchData])
+
+  const timeframeRef = useRef(timeframe)
+  timeframeRef.current = timeframe
+  useWebSocket('/ws/ticks', wsHandler)
+
   useEffect(() => {
     fetchData(timeframe)
     const interval = setInterval(() => fetchData(timeframe), 5000)
     return () => clearInterval(interval)
   }, [timeframe, fetchData])
+
+  useEffect(() => {
+    if (chartApi) chartApi.timeScale().fitContent()
+  }, [timeframe, chartApi])
 
   useEffect(() => {
     if (!chartRef.current) return
@@ -99,8 +119,8 @@ export default function Charts() {
       },
       crosshair: {
         mode: 0,
-        vertLine: { color: '#2b3139', width: 1, style: 2 },
-        horzLine: { color: '#2b3139', width: 1, style: 2 },
+        vertLine: { color: '#555', width: 1, style: 2, labelBackgroundColor: '#555' },
+        horzLine: { color: '#555', width: 1, style: 2, labelBackgroundColor: '#555' },
       },
       timeScale: {
         borderColor: '#2b3139',
@@ -193,6 +213,11 @@ export default function Charts() {
 
     series.setData(candleData)
 
+    if (candleData.length > 0) {
+      const last = candleData[candleData.length - 1]
+      lastCandleRef.current = { time: last.time as UTCTimestamp, high: last.high, low: last.low }
+    }
+
     if (ma60SeriesRef.current) {
       ma60SeriesRef.current.setData(computeSma(candleData, 60))
     }
@@ -236,7 +261,7 @@ export default function Charts() {
       addPriceLine({ price: pending.take_profit, color: '#0ecb81', lineStyle: 1, lineWidth: 1, axisLabelVisible: true, title: 'PEND TP' })
     }
 
-    // Swing point markers
+    // Swing point + trade markers
     const markers: { time: UTCTimestamp; position: 'aboveBar' | 'belowBar'; color: string; shape: 'arrowUp' | 'arrowDown'; text: string }[] = []
     if (structure?.latest_swing_high?.pivot_open_time) {
       markers.push({ time: structure.latest_swing_high.pivot_open_time as UTCTimestamp, position: 'belowBar', color: '#FCD535', shape: 'arrowDown', text: 'H' })
@@ -244,96 +269,27 @@ export default function Charts() {
     if (structure?.latest_swing_low?.pivot_open_time) {
       markers.push({ time: structure.latest_swing_low.pivot_open_time as UTCTimestamp, position: 'aboveBar', color: '#FCD535', shape: 'arrowUp', text: 'L' })
     }
+    for (const t of trades) {
+      if (t.opened_at) {
+        markers.push({
+          time: t.opened_at as UTCTimestamp,
+          position: t.side === 'buy' ? 'belowBar' : 'aboveBar',
+          color: t.pnl != null && t.pnl > 0 ? '#0ecb81' : '#f6465d',
+          shape: t.side === 'buy' ? 'arrowUp' : 'arrowDown',
+          text: `${t.side.toUpperCase()} ${t.lot}L`,
+        })
+      }
+    }
     if (markers.length) {
       markersPluginRef.current?.setMarkers(markers)
     }
-
-    // Indicator overlays on main chart
-    const chart = chartApi
-    if (!chart) return
-
-    // RSI overlay
-    if (visibleIndicators.rsi) {
-      if (!rsiSeriesRef.current) {
-        rsiSeriesRef.current = chart.addSeries(LineSeries, {
-          color: '#8c6cd8', lineWidth: 1, title: 'RSI(14)',
-          priceFormat: { type: 'custom' as const, formatter: (p: number) => p.toFixed(2) },
-        })
-        rsiOverboughtRef.current = chart.addSeries(LineSeries, {
-          color: '#f6465d', lineWidth: 1, lineStyle: 2, lastValueVisible: false,
-          priceFormat: { type: 'custom' as const, formatter: () => '' },
-        })
-        rsiOversoldRef.current = chart.addSeries(LineSeries, {
-          color: '#0ecb81', lineWidth: 1, lineStyle: 2, lastValueVisible: false,
-          priceFormat: { type: 'custom' as const, formatter: () => '' },
-        })
-      }
-      if (rsiSeriesRef.current && indicators?.rsi14 != null) {
-        const lastTime = candleData.length > 0 ? candleData[candleData.length - 1].time : 0
-        rsiSeriesRef.current.setData([{ time: lastTime as UTCTimestamp, value: indicators.rsi14 }])
-        rsiOverboughtRef.current?.setData([{ time: lastTime as UTCTimestamp, value: 70 }])
-        rsiOversoldRef.current?.setData([{ time: lastTime as UTCTimestamp, value: 30 }])
-      }
-    } else {
-      if (rsiSeriesRef.current) { chart.removeSeries(rsiSeriesRef.current); rsiSeriesRef.current = null }
-      if (rsiOverboughtRef.current) { chart.removeSeries(rsiOverboughtRef.current); rsiOverboughtRef.current = null }
-      if (rsiOversoldRef.current) { chart.removeSeries(rsiOversoldRef.current); rsiOversoldRef.current = null }
-    }
-
-    // MACD overlay
-    if (visibleIndicators.macd) {
-      if (!macdLineRef.current) {
-        macdLineRef.current = chart.addSeries(LineSeries, {
-          color: '#FCD535', lineWidth: 1, title: 'MACD',
-        })
-        macdSignalRef.current = chart.addSeries(LineSeries, {
-          color: '#5e7cc4', lineWidth: 1, title: 'Signal',
-        })
-      }
-      if (macdLineRef.current && indicators?.macd != null) {
-        const lastTime = candleData.length > 0 ? candleData[candleData.length - 1].time : 0
-        macdLineRef.current.setData([{ time: lastTime as UTCTimestamp, value: indicators.macd }])
-        macdSignalRef.current?.setData([{ time: lastTime as UTCTimestamp, value: indicators.macd_signal ?? 0 }])
-      }
-    } else {
-      if (macdLineRef.current) { chart.removeSeries(macdLineRef.current); macdLineRef.current = null }
-      if (macdSignalRef.current) { chart.removeSeries(macdSignalRef.current); macdSignalRef.current = null }
-    }
-
-    // BB overlay
-    if (visibleIndicators.bb) {
-      if (!bbUpperRef.current) {
-        bbUpperRef.current = chart.addSeries(LineSeries, {
-          color: '#FCD535', lineWidth: 1, lineStyle: 2, lastValueVisible: false, title: 'BB Upper',
-        })
-        bbMiddleRef.current = chart.addSeries(LineSeries, {
-          color: '#FCD535', lineWidth: 1, lastValueVisible: false, title: 'BB Mid',
-        })
-        bbLowerRef.current = chart.addSeries(LineSeries, {
-          color: '#FCD535', lineWidth: 1, lineStyle: 2, lastValueVisible: false, title: 'BB Lower',
-        })
-      }
-      if (bbUpperRef.current && indicators?.bb_upper != null && indicators?.bb_middle != null && indicators?.bb_lower != null) {
-        const lastTime = candleData.length > 0 ? candleData[candleData.length - 1].time : 0
-        const uuid = lastTime as UTCTimestamp
-        bbUpperRef.current.setData([{ time: uuid, value: indicators.bb_upper }])
-        bbMiddleRef.current?.setData([{ time: uuid, value: indicators.bb_middle }])
-        bbLowerRef.current?.setData([{ time: uuid, value: indicators.bb_lower }])
-      }
-    } else {
-      if (bbUpperRef.current) { chart.removeSeries(bbUpperRef.current); bbUpperRef.current = null }
-      if (bbMiddleRef.current) { chart.removeSeries(bbMiddleRef.current); bbMiddleRef.current = null }
-      if (bbLowerRef.current) { chart.removeSeries(bbLowerRef.current); bbLowerRef.current = null }
-    }
-
-    chart.timeScale().fitContent()
-  }, [candles, indicators, obs, structure, pending, visibleIndicators, chartApi])
+  }, [candles, indicators, obs, structure, pending, trades, chartApi])
 
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-lg font-semibold text-body">Charts</h1>
-        <div className="flex gap-1 items-center">
+        <div className="flex gap-1 items-center flex-wrap">
           <select
             value={pendingBotId ?? ''}
             onChange={(e) => setPendingBotId(e.target.value ? Number(e.target.value) : null)}
@@ -360,46 +316,45 @@ export default function Charts() {
             ))}
             {refreshing && <LoadingSpinner size={14} />}
           </div>
-          <div className="flex gap-1">
-            {[{key:'rsi',label:'RSI'},{key:'macd',label:'MACD'},{key:'bb',label:'BB'}].map(t => (
-              <button key={t.key}
-                onClick={() => toggleIndicator(t.key)}
-                className={`px-2 py-1.5 text-xs rounded border cursor-pointer transition-colors ${
-                  visibleIndicators[t.key] ? 'bg-primary/10 text-primary border-primary/50' : 'bg-surface-card-dark text-muted border-hairline-on-dark hover:border-surface-elevated-dark'
-                }`}
-              >{t.label}</button>
-            ))}
-          </div>
-          {/* Drawing toolbar */}
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {(['trendline', 'horizontal', 'vertical', 'rectangle', 'ray'] as const).map(tool => (
-              <button
-                key={tool}
-                onClick={() => { setActiveTool(activeTool === tool ? null : tool) }}
-                className={`px-2.5 py-1.5 text-xs rounded-md border cursor-pointer transition-colors ${
-                  activeTool === tool
-                    ? 'bg-primary/10 text-primary border-primary/50'
-                    : 'bg-surface-card-dark text-muted border-hairline-on-dark hover:border-surface-elevated-dark'
-                }`}
-              >
-                {tool === 'trendline' ? '↗' : tool === 'horizontal' ? '—' : tool === 'vertical' ? '│' : tool === 'rectangle' ? '▭' : '➡'}
-                <span className="ml-1 hidden sm:inline">{tool}</span>
-              </button>
-            ))}
-            <input
-              type="color"
-              value={color}
-              onChange={e => setColor(e.target.value)}
-              className="w-6 h-6 rounded cursor-pointer border-0 p-0 bg-transparent"
-              title="Color"
-            />
-            {drawingCount > 0 && (
-              <button onClick={clearAll} className="px-2 py-1.5 text-xs rounded-md border border-hairline-on-dark bg-surface-card-dark text-muted hover:text-trading-down cursor-pointer">
-                ✕ Clear
-              </button>
-            )}
-            {selectedId && <span className="text-[10px] text-muted">R-click delete</span>}
-          </div>
+          <button
+            onClick={() => setShowDrawTools(!showDrawTools)}
+            className={`px-2.5 py-1.5 text-xs rounded-md border cursor-pointer transition-colors ${
+              showDrawTools ? 'bg-primary/10 text-primary border-primary/50' : 'bg-surface-card-dark text-muted border-hairline-on-dark hover:border-surface-elevated-dark'
+            }`}
+          >
+            ✏️ Draw {showDrawTools ? '▾' : '▸'}
+          </button>
+          {showDrawTools && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {(['trendline', 'horizontal', 'vertical', 'rectangle', 'ray'] as const).map(tool => (
+                <button
+                  key={tool}
+                  onClick={() => { setActiveTool(activeTool === tool ? null : tool) }}
+                  className={`px-2 py-1.5 text-xs rounded-md border cursor-pointer transition-colors ${
+                    activeTool === tool
+                      ? 'bg-primary/10 text-primary border-primary/50'
+                      : 'bg-surface-card-dark text-muted border-hairline-on-dark hover:border-surface-elevated-dark'
+                  }`}
+                >
+                  {tool === 'trendline' ? '↗' : tool === 'horizontal' ? '—' : tool === 'vertical' ? '│' : tool === 'rectangle' ? '▭' : '➡'}
+                  <span className="ml-1 hidden sm:inline">{tool}</span>
+                </button>
+              ))}
+              <input
+                type="color"
+                value={color}
+                onChange={e => setColor(e.target.value)}
+                className="w-6 h-6 rounded cursor-pointer border-0 p-0 bg-transparent"
+                title="Color"
+              />
+              {drawingCount > 0 && (
+                <button onClick={clearAll} className="px-2 py-1.5 text-xs rounded-md border border-hairline-on-dark bg-surface-card-dark text-muted hover:text-trading-down cursor-pointer">
+                  ✕ Clear
+                </button>
+              )}
+              {selectedId && <span className="text-[10px] text-muted">R-click delete</span>}
+            </div>
+          )}
         </div>
       </div>
 
@@ -417,13 +372,10 @@ export default function Charts() {
       </div>
 
       {indicators && (
-        <div className="grid grid-cols-2 md:grid-cols-8 gap-3">
-          <IndiCard label="MA60" value={indicators.ma60?.toFixed(2) ?? '—'} color="#FCD535" />
-          <IndiCard label="MA80" value={indicators.ma80?.toFixed(2) ?? '—'} color="#5e7cc4" />
-          <IndiCard label="ATR14" value={indicators.atr14?.toFixed(2) ?? '—'} color="#eaecef" />
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <IndiCard label="RSI14" value={indicators.rsi14?.toFixed(1) ?? '—'} color={indicators.rsi14 != null ? (indicators.rsi14 > 70 ? '#f6465d' : indicators.rsi14 < 30 ? '#0ecb81' : '#8c6cd8') : '#eaecef'} />
           <IndiCard label="MACD" value={indicators.macd?.toFixed(2) ?? '—'} color="#FCD535" />
-          <IndiCard label="Signal" value={indicators.macd_signal?.toFixed(2) ?? '—'} color="#5e7cc4" />
+          <IndiCard label="ATR14" value={indicators.atr14?.toFixed(2) ?? '—'} color="#eaecef" />
           <IndiCard label="BB Mid" value={indicators.bb_middle?.toFixed(2) ?? '—'} color="#FCD535" />
           <IndiCard
             label="Trend"
@@ -434,13 +386,11 @@ export default function Charts() {
       )}
 
       {obs.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {obs.map((ob) => (
-            <span key={ob.id} className={`text-xs px-2 py-1 rounded ${ob.side === 'buy' ? 'bg-trading-up/10 text-trading-up' : 'bg-trading-down/10 text-trading-down'} border ${ob.side === 'buy' ? 'border-trading-up/30' : 'border-trading-down/30'}`}>
-              {ob.side.toUpperCase()} OB {ob.score}pts {ob.is_strong ? '★' : ''}
-            </span>
-          ))}
-          <span className="text-xs text-muted self-center">{obs.length} active OBs</span>
+        <div className="flex items-center gap-2 text-xs text-muted">
+          <span>{obs.length} active OBs</span>
+          <span className="text-trading-up">▲ {obs.filter(o => o.side === 'buy').length}</span>
+          <span className="text-trading-down">▼ {obs.filter(o => o.side === 'sell').length}</span>
+          <span className="text-primary">★ {obs.filter(o => o.is_strong).length} strong</span>
         </div>
       )}
     </div>
