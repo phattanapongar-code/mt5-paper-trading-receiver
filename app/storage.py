@@ -259,6 +259,48 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_pending_orders_ob_stable
                 ON pending_orders(symbol, timeframe, ob_side, ob_break_open_time, id DESC);
 
+            CREATE TABLE IF NOT EXISTS backtest_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                strategy_type TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                timeframe TEXT NOT NULL,
+                parameters_json TEXT NOT NULL DEFAULT '{}',
+                start_time INTEGER NOT NULL,
+                end_time INTEGER NOT NULL,
+                config_json TEXT NOT NULL DEFAULT '{}',
+                total_trades INTEGER DEFAULT 0,
+                wins INTEGER DEFAULT 0,
+                losses INTEGER DEFAULT 0,
+                win_rate REAL DEFAULT 0,
+                net_pnl REAL DEFAULT 0,
+                gross_profit REAL DEFAULT 0,
+                gross_loss REAL DEFAULT 0,
+                profit_factor REAL DEFAULT 0,
+                sharpe_ratio REAL DEFAULT 0,
+                max_drawdown_pct REAL DEFAULT 0,
+                avg_r REAL DEFAULT 0,
+                total_r REAL DEFAULT 0,
+                final_balance REAL DEFAULT 0,
+                return_pct REAL DEFAULT 0,
+                equity_curve_json TEXT DEFAULT '[]',
+                trades_json TEXT DEFAULT '[]',
+                created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS backtest_optimize_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                strategy_type TEXT NOT NULL,
+                param_ranges_json TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                timeframe TEXT NOT NULL,
+                start_time INTEGER NOT NULL,
+                end_time INTEGER NOT NULL,
+                optimization_metric TEXT NOT NULL DEFAULT 'sharpe_ratio',
+                total_combinations INTEGER DEFAULT 0,
+                results_json TEXT DEFAULT '[]',
+                created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+            );
+
             """
         )
         # Safe additive migrations: old SQLite data remains valid across patches.

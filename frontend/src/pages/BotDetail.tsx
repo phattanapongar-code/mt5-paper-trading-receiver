@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import client from '../api/client'
+import { useToast } from '../components/Toast'
 import type { BotState, Wallet, Trade, BotSignalLog, BotStats } from '../types/api'
 
 type Tab = 'info' | 'signals' | 'edit'
@@ -8,6 +9,7 @@ type Tab = 'info' | 'signals' | 'edit'
 export default function BotDetail() {
   const { botId } = useParams()
   const navigate = useNavigate()
+  const { addToast } = useToast()
   const [state, setState] = useState<BotState | null>(null)
   const [wallet, setWallet] = useState<Wallet | null>(null)
   const [trades, setTrades] = useState<Trade[]>([])
@@ -18,6 +20,8 @@ export default function BotDetail() {
   const [editName, setEditName] = useState('')
   const [editSymbol, setEditSymbol] = useState('')
   const [editTf, setEditTf] = useState('')
+  const [cloneName, setCloneName] = useState('')
+  const [showCloneModal, setShowCloneModal] = useState(false)
 
   const botStats: BotStats = useMemo(() => {
     const closed = trades.filter(t => t.status === 'closed')
@@ -86,22 +90,28 @@ export default function BotDetail() {
     const balance = prompt('New balance:')
     if (balance) {
       await client.post(`/bots/${botId}/wallet/reset`, { balance: parseFloat(balance) })
+      addToast('Wallet reset', 'success')
       fetchData()
     }
-  }, [botId, fetchData])
+  }, [botId, fetchData, addToast])
 
   const saveEdit = useCallback(async () => {
     await client.put(`/bots/${botId}`, { name: editName, symbol: editSymbol, timeframe: editTf })
     setTab('info')
+    addToast('Bot updated', 'success')
     fetchData()
-  }, [botId, editName, editSymbol, editTf, fetchData])
+  }, [botId, editName, editSymbol, editTf, fetchData, addToast])
 
-  const cloneBot = useCallback(async () => {
-    const name = prompt('New bot name:', (state?.bot?.name ?? '') + ' (clone)')
-    if (!name || !state) return
+  const openCloneModal = useCallback(() => {
+    setCloneName((state?.bot?.name ?? '') + ' (clone)')
+    setShowCloneModal(true)
+  }, [state])
+
+  const doClone = useCallback(async () => {
+    if (!cloneName || !state) return
     await client.post('/bots', {
       profile_id: state.bot.profile_id,
-      name,
+      name: cloneName,
       strategy_type: state.bot.strategy_type,
       strategy_version: state.bot.strategy_version,
       symbol: state.bot.symbol,
@@ -110,19 +120,20 @@ export default function BotDetail() {
       initial_balance: wallet?.initial_balance ?? 500,
       parameters: state.bot.parameters,
     })
-    alert('Bot cloned!')
+    addToast('Bot cloned!', 'success')
+    setShowCloneModal(false)
     navigate('/bots')
-  }, [state, wallet, navigate])
+  }, [cloneName, state, wallet, navigate, addToast])
 
   const saveParams = useCallback(async () => {
     try {
       const parsed = JSON.parse(paramsText)
       await client.put(`/bots/${botId}/parameters`, { parameters: parsed })
-      alert('Parameters saved!')
+      addToast('Parameters saved!', 'success')
     } catch {
-      alert('Invalid JSON')
+      addToast('Invalid JSON', 'error')
     }
-  }, [botId, paramsText])
+  }, [botId, paramsText, addToast])
 
   if (loading) {
     return (
@@ -153,7 +164,7 @@ export default function BotDetail() {
           <span className="text-xs font-mono text-muted">{bot.symbol} {bot.timeframe}</span>
         </div>
         <div className="flex gap-2">
-          <button onClick={cloneBot} className="px-3 py-1.5 text-xs rounded-md bg-surface-elevated-dark text-text-secondary hover:text-body border border-hairline-on-dark cursor-pointer">Clone</button>
+          <button onClick={openCloneModal} className="px-3 py-1.5 text-xs rounded-md bg-surface-elevated-dark text-muted hover:text-body border border-hairline-on-dark cursor-pointer">Clone</button>
           <button onClick={() => toggleBot(!bot.enabled)}
             className={`px-3 py-1.5 text-xs rounded-md font-semibold transition-colors cursor-pointer ${
               bot.enabled
@@ -208,6 +219,7 @@ export default function BotDetail() {
 
       <div className="flex gap-2">
         <button onClick={resetWallet} className="px-3 py-1.5 text-xs rounded-md bg-surface-elevated-dark text-text-secondary hover:text-body border border-hairline-on-dark transition-colors cursor-pointer">Reset Wallet</button>
+        <button onClick={() => navigate('/backtest')} className="px-3 py-1.5 text-xs rounded-md bg-primary/10 text-primary border border-primary/50 cursor-pointer">Backtest</button>
       </div>
 
       {state.position && (
@@ -269,6 +281,19 @@ export default function BotDetail() {
         <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-5 max-w-md">
           <h2 className="text-xs font-semibold text-muted uppercase tracking-wider mb-4">Edit Bot</h2>
           <div className="space-y-3">
+            <div>
+              <label className="block text-xs text-muted mb-1">Trailing Stop</label>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted">Enabled</span>
+                <button onClick={() => {
+                  const p = state?.bot.parameters ?? {}
+                  const enabled = !p.trailing_enabled
+                  setParamsText(JSON.stringify({ ...p, trailing_enabled: enabled, trail_activation_pips: p.trail_activation_pips ?? 10, trail_distance_pips: p.trail_distance_pips ?? 5, trail_step_pips: p.trail_step_pips ?? 1 }, null, 2))
+                }} className={`w-10 h-5 rounded-full transition-colors cursor-pointer ${(state?.bot.parameters?.trailing_enabled) ? 'bg-trading-up' : 'bg-surface-400'}`}>
+                  <span className={`block w-4 h-4 bg-white rounded-full transition-transform ${state?.bot.parameters?.trailing_enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                </button>
+              </div>
+            </div>
             <div>
               <label className="block text-xs text-muted mb-1">Name</label>
               <input value={editName} onChange={(e) => setEditName(e.target.value)}
@@ -350,6 +375,23 @@ export default function BotDetail() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {showCloneModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-6 max-w-sm w-full mx-4">
+            <h3 className="text-sm font-semibold text-body mb-4">Clone Bot</h3>
+            <label className="block text-xs text-muted mb-1">New bot name</label>
+            <input value={cloneName} onChange={(e) => setCloneName(e.target.value)}
+              className="w-full px-3 py-2 bg-surface-elevated-dark border border-hairline-on-dark rounded text-sm text-body mb-4 focus:outline-none focus:border-primary" />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setShowCloneModal(false)}
+                className="px-3 py-1.5 text-xs rounded bg-surface-elevated-dark text-muted border border-hairline-on-dark cursor-pointer">Cancel</button>
+              <button onClick={doClone}
+                className="px-3 py-1.5 text-xs rounded bg-primary/10 text-primary border border-primary/50 cursor-pointer">Clone</button>
+            </div>
           </div>
         </div>
       )}

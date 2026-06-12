@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import client from '../api/client'
 import { useWebSocket } from '../api/ws'
 import { useBotContext } from '../context/BotContext'
+import LoadingSpinner from '../components/LoadingSpinner'
 import type { Trade, CompareBot, BotState, Wallet } from '../types/api'
 
 interface HealthWithTick {
@@ -20,9 +21,13 @@ export default function Overview() {
   const [botState, setBotState] = useState<BotState | null>(null)
   const [wallet, setWallet] = useState<Wallet | null>(null)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const navigate = useNavigate()
 
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const fetchData = useCallback(async () => {
+    setRefreshing(true)
     try {
       const [healthRes, tradesRes, compareRes] = await Promise.all([
         fetch('/health').then((r) => r.json() as Promise<HealthWithTick>),
@@ -48,6 +53,7 @@ export default function Overview() {
       // ignore
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }, [selectedBot, allBots])
 
@@ -57,8 +63,17 @@ export default function Overview() {
     return () => clearInterval(interval)
   }, [fetchData])
 
-  useWebSocket('/ws/ticks', () => {
-    fetchData()
+  useWebSocket('/ws/ticks', (msg: any) => {
+    if (msg?.tick) {
+      setHealth((prev) => prev ? {
+        ...prev,
+        latest_tick: msg.tick,
+        seconds_since_last_message: 0,
+        sender_online: true,
+      } : prev)
+    }
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(fetchData, 500)
   })
 
   if (loading && !health) {
@@ -88,6 +103,7 @@ export default function Overview() {
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold text-body flex items-center gap-2">
           Overview{selectedBot ? ` — ${selectedBot.name}` : ''}
+          {refreshing && <LoadingSpinner size={14} />}
           {selectedBot && isBotLive && (
             <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-trading-up">
               <span className="w-1.5 h-1.5 rounded-full bg-trading-up shadow-[0_0_4px_#0ecb81] animate-pulse" />

@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from app import storage
 from app.candle_engine import CandleEngine, TIMEFRAMES
@@ -18,9 +19,9 @@ from app.market_structure import MarketStructureEngine
 from app.order_blocks import OrderBlockEngine
 from app.replay import ReplayEngine
 from app.multibot import service as multibot
-from app.multibot.runtime import process_tick_sync
+from app.multibot.runtime import process_tick_sync, hub
 
-app = FastAPI(title="MT5 Paper Trading Receiver", version="2.2.0")
+app = FastAPI(title="MT5 Paper Trading Receiver", version="2.4.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -123,7 +124,13 @@ async def receive_price(payload: TickPayload) -> dict[str, Any]:
     order_block_refresh = order_blocks.refresh_timeframes(payload.symbol, closed_timeframes) if closed_timeframes else {}
 
     # All bots (including Paper Trading) are evaluated by the multibot runtime
-    multibot_result = process_tick_sync(latest_tick)
+    try:
+        multibot_result = process_tick_sync(latest_tick)
+    except Exception as exc:
+        multibot_result = {"ok": False, "error": str(exc), "tick": latest_tick}
+        import traceback
+        traceback.print_exc()
+    hub.set_result(multibot_result)
 
     event = {
         "event": "price",
@@ -196,6 +203,12 @@ def history_status() -> dict[str, Any]:
 def health() -> dict[str, Any]:
     now = int(time.time())
     seconds = None if last_received_at is None else now - last_received_at
+    bots = storage.query_all(
+        "SELECT b.id,b.name,b.enabled,r.updated_at AS runtime_updated_at,r.paused_reason FROM bots b LEFT JOIN bot_runtime_state r ON r.bot_id=b.id ORDER BY b.id"
+    )
+    for b in bots:
+        b["is_live"] = b["runtime_updated_at"] is not None and (now - b["runtime_updated_at"]) < 12
+        b.pop("runtime_updated_at", None)
     return {
         "ok": True,
         "sender_online": seconds is not None and seconds <= settings.stale_tick_seconds,
@@ -204,7 +217,17 @@ def health() -> dict[str, Any]:
         "last_seq": last_seq,
         "websocket_clients": len(ws_clients),
         "latest_tick": latest_tick,
+        "bots": bots,
     }
+
+
+@app.get("/symbols")
+def get_symbols() -> dict[str, list[str]]:
+    rows = storage.query_all("SELECT DISTINCT symbol FROM ticks WHERE symbol IS NOT NULL ORDER BY symbol")
+    symbols = [r["symbol"] for r in rows if r["symbol"]]
+    if not symbols:
+        symbols = [settings.symbol]
+    return {"symbols": symbols}
 
 
 @app.get("/api/ticks")
@@ -214,79 +237,80 @@ def ticks(limit: int = 100) -> list[dict[str, Any]]:
 
 
 @app.get("/api/candles/{timeframe}")
-def get_candles(timeframe: str, limit: int = 100, closed_only: bool = False) -> list[dict[str, Any]]:
+def get_candles(timeframe: str, symbol: str = "", limit: int = 100, closed_only: bool = False) -> list[dict[str, Any]]:
     timeframe = timeframe.upper()
+    sym = symbol.upper() or settings.symbol
     if timeframe not in TIMEFRAMES:
         raise HTTPException(status_code=400, detail=f"Unsupported timeframe. Use one of {list(TIMEFRAMES)}")
-    return candles.get_candles(settings.symbol, timeframe, max(1, min(limit, 1000)), closed_only)
+    return candles.get_candles(sym, timeframe, max(1, min(limit, 1000)), closed_only)
 
 
 @app.get("/api/indicators/{timeframe}")
-def get_indicators(timeframe: str) -> dict[str, Any]:
+def get_indicators(timeframe: str, symbol: str = "") -> dict[str, Any]:
     timeframe = timeframe.upper()
+    sym = symbol.upper() or settings.symbol
     if timeframe not in TIMEFRAMES:
         raise HTTPException(status_code=400, detail=f"Unsupported timeframe. Use one of {list(TIMEFRAMES)}")
-    return candles.get_indicators(settings.symbol, timeframe)
+    return candles.get_indicators(sym, timeframe)
 
 
 @app.get("/api/swings/{timeframe}")
-def get_swings(timeframe: str, limit: int = 50) -> list[dict[str, Any]]:
+def get_swings(timeframe: str, symbol: str = "", limit: int = 50) -> list[dict[str, Any]]:
     timeframe = timeframe.upper()
+    sym = symbol.upper() or settings.symbol
     if timeframe not in TIMEFRAMES:
         raise HTTPException(status_code=400, detail=f"Unsupported timeframe. Use one of {list(TIMEFRAMES)}")
-    return structure.get_swings(settings.symbol, timeframe, max(1, min(limit, 1000)))
+    return structure.get_swings(sym, timeframe, max(1, min(limit, 1000)))
 
 
 @app.get("/api/bos/{timeframe}")
-def get_bos(timeframe: str, limit: int = 50) -> list[dict[str, Any]]:
+def get_bos(timeframe: str, symbol: str = "", limit: int = 50) -> list[dict[str, Any]]:
     timeframe = timeframe.upper()
+    sym = symbol.upper() or settings.symbol
     if timeframe not in TIMEFRAMES:
         raise HTTPException(status_code=400, detail=f"Unsupported timeframe. Use one of {list(TIMEFRAMES)}")
-    return structure.get_bos(settings.symbol, timeframe, max(1, min(limit, 1000)))
+    return structure.get_bos(sym, timeframe, max(1, min(limit, 1000)))
 
 
 @app.get("/api/market-structure/{timeframe}")
-def get_market_structure(timeframe: str) -> dict[str, Any]:
+def get_market_structure(timeframe: str, symbol: str = "") -> dict[str, Any]:
     timeframe = timeframe.upper()
+    sym = symbol.upper() or settings.symbol
     if timeframe not in TIMEFRAMES:
         raise HTTPException(status_code=400, detail=f"Unsupported timeframe. Use one of {list(TIMEFRAMES)}")
-    return structure.state(settings.symbol, timeframe)
+    return structure.state(sym, timeframe)
 
 
 @app.post("/api/market-structure/rebuild")
-def rebuild_market_structure() -> dict[str, Any]:
-    return {"ok": True, "symbol": settings.symbol, "market_structure": structure.rebuild_all(settings.symbol)}
+def rebuild_market_structure(symbol: str = "") -> dict[str, Any]:
+    sym = symbol.upper() or settings.symbol
+    return {"ok": True, "symbol": sym, "market_structure": structure.rebuild_all(sym)}
 
 
 @app.post("/api/order-blocks/rebuild")
-def rebuild_order_blocks() -> dict[str, Any]:
-    market_structure = structure.rebuild_all(settings.symbol)
-    summary = order_blocks.rebuild_all(settings.symbol)
-    return {"ok": True, "symbol": settings.symbol, "market_structure": market_structure, "order_blocks": summary}
+def rebuild_order_blocks(symbol: str = "") -> dict[str, Any]:
+    sym = symbol.upper() or settings.symbol
+    market_structure = structure.rebuild_all(sym)
+    summary = order_blocks.rebuild_all(sym)
+    return {"ok": True, "symbol": sym, "market_structure": market_structure, "order_blocks": summary}
 
 
 @app.get("/api/order-blocks/active/{timeframe}")
-def get_active_order_blocks(timeframe: str, limit: int = 50) -> list[dict[str, Any]]:
+def get_active_order_blocks(timeframe: str, symbol: str = "", limit: int = 50) -> list[dict[str, Any]]:
     timeframe = timeframe.upper()
+    sym = symbol.upper() or settings.symbol
     if timeframe not in TIMEFRAMES:
         raise HTTPException(status_code=400, detail=f"Unsupported timeframe. Use one of {list(TIMEFRAMES)}")
-    return order_blocks.get_active(settings.symbol, timeframe, max(1, min(limit, 1000)))
+    return order_blocks.get_active(sym, timeframe, max(1, min(limit, 1000)))
 
 
 @app.get("/api/order-blocks/state/{timeframe}")
-def get_order_block_state(timeframe: str) -> dict[str, Any]:
+def get_order_block_state(timeframe: str, symbol: str = "") -> dict[str, Any]:
     timeframe = timeframe.upper()
+    sym = symbol.upper() or settings.symbol
     if timeframe not in TIMEFRAMES:
         raise HTTPException(status_code=400, detail=f"Unsupported timeframe. Use one of {list(TIMEFRAMES)}")
-    return order_blocks.state(settings.symbol, timeframe)
-
-
-@app.get("/api/order-blocks/{timeframe}")
-def get_order_blocks(timeframe: str, limit: int = 50) -> list[dict[str, Any]]:
-    timeframe = timeframe.upper()
-    if timeframe not in TIMEFRAMES:
-        raise HTTPException(status_code=400, detail=f"Unsupported timeframe. Use one of {list(TIMEFRAMES)}")
-    return order_blocks.get_order_blocks(settings.symbol, timeframe, max(1, min(limit, 1000)))
+    return order_blocks.state(sym, timeframe)
 
 
 # ── Pending Orders ──
@@ -450,3 +474,46 @@ async def ws_ticks(ws: WebSocket) -> None:
 # Multi-bot v1.1+ routes
 from app.multibot.router import router as multibot_router
 app.include_router(multibot_router)
+
+# Backtest router
+from app.backtest.router import router as backtest_router
+app.include_router(backtest_router)
+
+
+# ── Alert Config Endpoints ──
+
+from app.alert import alert_engine
+
+
+@app.get("/api/alerts/config")
+def get_alert_config() -> dict[str, Any]:
+    token = storage.query_one("SELECT value FROM multibot_runtime_settings WHERE key='alert.bot_token'")
+    chat = storage.query_one("SELECT value FROM multibot_runtime_settings WHERE key='alert.chat_id'")
+    enabled = storage.query_one("SELECT value FROM multibot_runtime_settings WHERE key='alert.enabled'")
+    return {
+        "bot_token": token["value"] if token else "",
+        "chat_id": chat["value"] if chat else "",
+        "enabled": (enabled["value"] if enabled else "0") == "1",
+    }
+
+
+class AlertConfigRequest(BaseModel):
+    bot_token: str = ""
+    chat_id: str = ""
+    enabled: bool = False
+
+
+@app.post("/api/alerts/config")
+def save_alert_config(req: AlertConfigRequest) -> dict[str, Any]:
+    now = int(time.time())
+    storage.execute("INSERT OR REPLACE INTO multibot_runtime_settings(key,value,updated_at) VALUES('alert.bot_token',?,?)", (req.bot_token, now))
+    storage.execute("INSERT OR REPLACE INTO multibot_runtime_settings(key,value,updated_at) VALUES('alert.chat_id',?,?)", (req.chat_id, now))
+    storage.execute("INSERT OR REPLACE INTO multibot_runtime_settings(key,value,updated_at) VALUES('alert.enabled',?,?)", ("1" if req.enabled else "0", now))
+    alert_engine.configure(req.bot_token, req.chat_id, req.enabled)
+    return {"ok": True}
+
+
+@app.post("/api/alerts/test")
+async def test_alert() -> dict[str, Any]:
+    ok = await alert_engine.test()
+    return {"ok": ok, "message": "Test alert sent" if ok else "Alert sending failed"}

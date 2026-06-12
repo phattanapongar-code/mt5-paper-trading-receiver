@@ -1,24 +1,30 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import client from '../api/client'
-import type { Health, HistoryStatus, Bot } from '../types/api'
+import { useToast } from '../components/Toast'
+import type { Health, HistoryStatus, Bot, AlertConfig as AlertConfigData } from '../types/api'
 
 const log = (...args: unknown[]) => console.log('[Settings]', ...args)
 
 export default function Settings() {
+  const { addToast } = useToast()
   const [health, setHealth] = useState<Health | null>(null)
   const [historyStatus, setHistoryStatus] = useState<HistoryStatus | null>(null)
   const [bots, setBots] = useState<Bot[]>([])
   const [loading, setLoading] = useState(true)
   const historyFileInputRef = useRef<HTMLInputElement>(null)
+  const [alertCfg, setAlertCfg] = useState<AlertConfigData>({ bot_token: '', chat_id: '', enabled: false })
+  const [alertLoading, setAlertLoading] = useState(false)
 
   const fetchData = useCallback(async () => {
     try {
-      const [historyStatusRes, botsRes] = await Promise.all([
+      const [historyStatusRes, botsRes, alertRes] = await Promise.all([
         client.get<HistoryStatus>('/history/status'),
         client.get<Bot[]>('/bots'),
+        client.get<AlertConfigData>('/alerts/config').catch(() => ({ data: { bot_token: '', chat_id: '', enabled: false } as AlertConfigData })),
       ])
       setBots(botsRes.data)
       setHistoryStatus(historyStatusRes.data)
+      setAlertCfg(alertRes.data)
       try {
         const healthRes = await fetch('/health')
         if (healthRes.ok) setHealth(await healthRes.json())
@@ -173,6 +179,55 @@ export default function Settings() {
           </div>
         </section>
       )}
+
+      <section className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-4">
+        <h2 className="text-sm font-semibold text-body mb-3">Telegram Alerts</h2>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs text-muted mb-1">Bot Token</label>
+            <input type="password" value={alertCfg.bot_token}
+              onChange={e => setAlertCfg(prev => ({ ...prev, bot_token: e.target.value }))}
+              placeholder="123456:ABC..."
+              className="w-full px-3 py-2 bg-surface-elevated-dark border border-hairline-on-dark rounded text-sm text-body font-mono focus:outline-none focus:border-primary" />
+          </div>
+          <div>
+            <label className="block text-xs text-muted mb-1">Chat ID</label>
+            <input value={alertCfg.chat_id}
+              onChange={e => setAlertCfg(prev => ({ ...prev, chat_id: e.target.value }))}
+              placeholder="-100123456789"
+              className="w-full px-3 py-2 bg-surface-elevated-dark border border-hairline-on-dark rounded text-sm text-body font-mono focus:outline-none focus:border-primary" />
+          </div>
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-muted">Enabled</label>
+            <button onClick={() => setAlertCfg(prev => ({ ...prev, enabled: !prev.enabled }))}
+              className={`w-10 h-5 rounded-full transition-colors cursor-pointer ${alertCfg.enabled ? 'bg-trading-up' : 'bg-surface-400'}`}>
+              <span className={`block w-4 h-4 bg-white rounded-full transition-transform ${alertCfg.enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={async () => {
+              setAlertLoading(true)
+              try {
+                await client.post('/alerts/config', alert)
+                addToast('Alert config saved', 'success')
+              } catch { addToast('Failed to save', 'error') }
+              finally { setAlertLoading(false) }
+            }} disabled={alertLoading}
+              className="px-3 py-1.5 text-xs bg-primary/10 text-primary border border-primary/50 rounded cursor-pointer disabled:opacity-50">
+              {alertLoading ? 'Saving...' : 'Save'}
+            </button>
+            <button onClick={async () => {
+              try {
+                await client.post('/alerts/test')
+                addToast('Test alert sent!', 'success')
+              } catch { addToast('Test alert failed', 'error') }
+            }}
+              className="px-3 py-1.5 text-xs bg-surface-elevated-dark text-muted border border-hairline-on-dark rounded cursor-pointer">
+              Test Alert
+            </button>
+          </div>
+        </div>
+      </section>
 
       <section className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-4">
         <h2 className="text-sm font-semibold text-body mb-1">About</h2>

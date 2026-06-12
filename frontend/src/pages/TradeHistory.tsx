@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import client from '../api/client'
+import { useToast } from '../components/Toast'
 import { useBotContext } from '../context/BotContext'
 import type { Trade } from '../types/api'
 
 const fmtTime = (ts: number | null | undefined) => {
   if (!ts) return '—'
-  return new Date(ts * 1000).toLocaleString('th-TH', {
+  return new Date(ts * 1000).toLocaleString(undefined, {
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
     hour12: false,
@@ -14,10 +15,12 @@ const fmtTime = (ts: number | null | undefined) => {
 
 export default function TradeHistory() {
   const { selectedBot, allBots } = useBotContext()
+  const { addToast } = useToast()
   const [trades, setTrades] = useState<Trade[]>([])
   const [loading, setLoading] = useState(true)
   const [sideFilter, setSideFilter] = useState('all')
   const [dateFilter, setDateFilter] = useState('all')
+  const cancelledRef = useRef(false)
 
   const fetchData = useCallback(async () => {
     try {
@@ -25,16 +28,18 @@ export default function TradeHistory() {
       if (selectedBot) params.bot_id = selectedBot.id
 
       const tradesRes = await client.get<Trade[]>('/trades', { params })
-      setTrades(tradesRes.data)
+      if (!cancelledRef.current) setTrades(tradesRes.data)
     } catch {
-      // ignore
+      if (!cancelledRef.current) addToast('Failed to load trades', 'error')
     } finally {
-      setLoading(false)
+      if (!cancelledRef.current) setLoading(false)
     }
-  }, [selectedBot])
+  }, [selectedBot, addToast])
 
   useEffect(() => {
+    cancelledRef.current = false
     fetchData()
+    return () => { cancelledRef.current = true }
   }, [fetchData])
 
   const filteredTrades = useMemo(() => {
@@ -110,6 +115,18 @@ export default function TradeHistory() {
             <option value="30d">30 Days</option>
           </select>
           <span className="text-xs text-muted font-mono self-center">{filteredTrades.length} trades</span>
+          <button onClick={() => {
+            const header = 'ID,Bot,Side,Lot,Entry,Exit,PnL,R-Multiple,Exit Reason,Opened,Closed'
+            const rows = filteredTrades.map(t =>
+              [t.id, t.bot_id ?? '', t.side, t.lot, t.entry, t.exit ?? '', t.pnl ?? '', t.r_multiple ?? '', t.exit_reason ?? '', fmtTime(t.opened_at), fmtTime(t.closed_at)].join(',')
+            )
+            const blob = new Blob(['\uFEFF' + header + '\n' + rows.join('\n')], { type: 'text/csv;charset=utf-8;' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a'); a.href = url; a.download = 'trades.csv'; a.click()
+            URL.revokeObjectURL(url)
+          }} className="px-3 py-1.5 text-xs rounded bg-primary/10 text-primary border border-primary/50 cursor-pointer">
+            Export CSV
+          </button>
         </div>
       </div>
 

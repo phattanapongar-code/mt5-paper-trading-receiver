@@ -1,7 +1,25 @@
 import { useState, useEffect, useCallback } from 'react'
 import client from '../api/client'
 import { useBotContext } from '../context/BotContext'
-import type { PendingOrder, Bot } from '../types/api'
+import LoadingSpinner from '../components/LoadingSpinner'
+import type { PendingOrder } from '../types/api'
+
+function ExpiryCountdown({ expiresAt }: { expiresAt: number }) {
+  const [remaining, setRemaining] = useState('')
+  useEffect(() => {
+    const update = () => {
+      const diff = expiresAt * 1000 - Date.now()
+      if (diff <= 0) { setRemaining('EXPIRED'); return }
+      const mins = Math.floor(diff / 60000)
+      const secs = Math.floor((diff % 60000) / 1000)
+      setRemaining(`${mins}m ${secs}s`)
+    }
+    update()
+    const interval = setInterval(update, 1000)
+    return () => clearInterval(interval)
+  }, [expiresAt])
+  return <span className={`text-xs font-mono ${remaining === 'EXPIRED' ? 'text-trading-down' : 'text-muted'}`}>{remaining}</span>
+}
 
 interface PendingOrderWithBot extends PendingOrder {
   bot_name?: string
@@ -13,8 +31,10 @@ export default function PendingOrders() {
   const [orders, setOrders] = useState<PendingOrderWithBot[]>([])
   const [rejections, setRejections] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
 
   const fetchData = useCallback(async () => {
+    setRefreshing(true)
     try {
       const botParam = selectedBot ? `&bot_id=${selectedBot.id}` : ''
       const [ordersRes, rejRes] = await Promise.all([
@@ -27,6 +47,7 @@ export default function PendingOrders() {
       // ignore
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }, [selectedBot])
 
@@ -67,6 +88,7 @@ export default function PendingOrders() {
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold text-body">
           Pending Orders{selectedBot ? ` — ${selectedBot.name}` : ''}
+          {refreshing && <LoadingSpinner size={14} />}
         </h1>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted font-mono">{orders.length} total · {activeOrders.length} active</span>
@@ -94,6 +116,7 @@ export default function PendingOrders() {
                   {order.bot_id && !order.bot_name && (
                     <span className="text-xs text-muted font-mono">bot #{order.bot_id}</span>
                   )}
+                  {order.expires_at && <ExpiryCountdown expiresAt={order.expires_at} />}
                 </div>
                 <button
                   onClick={() => cancelOrder(order.id)}
@@ -148,9 +171,8 @@ export default function PendingOrders() {
                   <th className="text-right p-3 font-medium">Entry</th>
                   <th className="text-right p-3 font-medium">SL</th>
                   <th className="text-right p-3 font-medium">TP</th>
-                  <th className="text-right p-3 font-medium">RR</th>
-                  <th className="text-left p-3 font-medium">Status</th>
-                  <th className="text-left p-3 font-medium">Action</th>
+                    <th className="text-right p-3 font-medium">RR</th>
+                    <th className="text-left p-3 font-medium">Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -167,14 +189,6 @@ export default function PendingOrders() {
                     <td className="p-3">
                       <span className="text-xs font-mono text-muted">{o.status}</span>
                     </td>
-                    <td className="p-3">
-                      {o.status === 'pending' && (
-                        <button onClick={() => cancelOrder(o.id)}
-                          className="px-2 py-1 text-xs rounded bg-trading-down/10 text-trading-down border border-trading-down/50 cursor-pointer">
-                          Cancel
-                        </button>
-                      )}
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -187,7 +201,8 @@ export default function PendingOrders() {
       {rejections.length > 0 && (
         <div>
           <h2 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Rejection Log{selectedBot ? ` — ${selectedBot.name}` : ''}</h2>
-          <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg overflow-hidden max-h-60 overflow-y-auto">
+          <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg">
+            <div className="max-h-60 overflow-y-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-hairline-on-dark text-muted text-xs sticky top-0 bg-surface-card-dark">
@@ -208,6 +223,7 @@ export default function PendingOrders() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
       )}

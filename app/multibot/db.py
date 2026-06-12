@@ -29,6 +29,10 @@ def default_parameters() -> dict[str, Any]:
         "require_m5_confirmation": False,
         "daily_loss_limit_percent": 0.03,
         "max_consecutive_losses": 3,
+        "trailing_enabled": False,
+        "trail_activation_pips": 10,
+        "trail_distance_pips": 5,
+        "trail_step_pips": 1,
     }
 
 

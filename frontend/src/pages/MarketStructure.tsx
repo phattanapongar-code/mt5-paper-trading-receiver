@@ -1,21 +1,24 @@
 import { useState, useEffect, useCallback } from 'react'
 import client from '../api/client'
+import { useToast } from '../components/Toast'
+import LoadingSpinner from '../components/LoadingSpinner'
 import type { MarketStructureState, OrderBlock, OrderBlockState, BosEvent } from '../types/api'
-
-const log = (...args: unknown[]) => console.log('[MarketStructure]', ...args)
 
 const TIMEFRAMES = ['M1', 'M5', 'M15', 'H1'] as const
 type TF = (typeof TIMEFRAMES)[number]
 
 export default function MarketStructure() {
+  const { addToast } = useToast()
   const [timeframe, setTimeframe] = useState<TF>('M15')
   const [structure, setStructure] = useState<MarketStructureState | null>(null)
   const [obState, setObState] = useState<OrderBlockState | null>(null)
   const [obActives, setObActives] = useState<OrderBlock[]>([])
   const [bosEvents, setBosEvents] = useState<BosEvent[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
 
   const fetchData = useCallback(async (tf: TF) => {
+    setRefreshing(true)
     try {
       const [structRes, obRes, bosRes, obActiveRes] = await Promise.all([
         client.get<MarketStructureState>(`/market-structure/${tf}`),
@@ -27,30 +30,29 @@ export default function MarketStructure() {
       setObState(obRes.data)
       setBosEvents(bosRes.data)
       setObActives(obActiveRes.data)
-    } catch (err) {
-      log('fetch failed', err)
-      if (err && typeof err === 'object' && 'response' in err) {
-        const axiosErr = err as { response?: { status?: number }; message?: string }
-        log('status:', axiosErr.response?.status)
-      }
+    } catch {
+      addToast('Failed to fetch market data', 'error')
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
-  }, [])
+  }, [addToast])
 
   const rebuild = useCallback(async () => {
-    await client.post('/order-blocks/rebuild')
-    fetchData(timeframe)
-  }, [timeframe, fetchData])
+    try {
+      await client.post('/order-blocks/rebuild')
+      addToast('Order blocks rebuilt', 'success')
+      fetchData(timeframe)
+    } catch { addToast('Rebuild failed', 'error') }
+  }, [timeframe, fetchData, addToast])
 
   const rebuildMarketStructure = useCallback(async () => {
     try {
       await client.post('/market-structure/rebuild')
+      addToast('Market structure rebuilt', 'success')
       fetchData(timeframe)
-    } catch (err) {
-      log('rebuild market structure failed', err)
-    }
-  }, [timeframe, fetchData])
+    } catch { addToast('Rebuild failed', 'error') }
+  }, [timeframe, fetchData, addToast])
 
   useEffect(() => {
     fetchData(timeframe)
@@ -71,7 +73,9 @@ export default function MarketStructure() {
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-body">Market Structure</h1>
+        <h1 className="text-lg font-semibold text-body flex items-center gap-2">Market Structure
+          {refreshing && <LoadingSpinner size={14} />}
+        </h1>
           <div className="flex items-center gap-2">
             <div className="flex gap-1">
               {TIMEFRAMES.map((tf) => (
@@ -91,7 +95,7 @@ export default function MarketStructure() {
             <div className="flex gap-1">
               <button
                 onClick={rebuild}
-                className="px-3 py-1.5 text-xs rounded-md bg-surface-elevated-dark text-text-secondary hover:text-body border border-hairline-on-dark transition-colors cursor-pointer"
+                className="px-3 py-1.5 text-xs rounded-md bg-surface-elevated-dark text-muted hover:text-body border border-hairline-on-dark transition-colors cursor-pointer"
               >
                 Rebuild Order Blocks
               </button>
@@ -163,7 +167,7 @@ export default function MarketStructure() {
         </div>
       </div>
 
-      {obActives.length > 0 && (
+      {obActives.length > 0 ? (
         <div>
           <h2 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Active Order Blocks</h2>
           <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg overflow-hidden">
@@ -203,9 +207,13 @@ export default function MarketStructure() {
             </table>
           </div>
         </div>
+      ) : (
+        <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-6 text-center">
+          <p className="text-sm text-muted">No active order blocks for {timeframe}</p>
+        </div>
       )}
 
-      {bosEvents.length > 0 && (
+      {bosEvents.length > 0 ? (
         <div>
           <h2 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Recent BOS Events</h2>
           <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg overflow-hidden">
@@ -232,6 +240,10 @@ export default function MarketStructure() {
               </tbody>
             </table>
           </div>
+        </div>
+      ) : (
+        <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-6 text-center">
+          <p className="text-sm text-muted">No BOS events for {timeframe}</p>
         </div>
       )}
     </div>

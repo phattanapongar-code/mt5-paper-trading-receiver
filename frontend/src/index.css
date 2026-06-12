@@ -31,6 +31,46 @@
   /* Typography: BinanceNova substitute (Inter) + BinancePlex substitute (JetBrains Mono) */
   --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* Missing variables used across components */
+  --color-text-muted: #707a8a;
+  --color-text-secondary: #929aa5;
+  --color-surface-900: #0b0e11;
+  --color-surface-800: #15191e;
+  --color-surface-500: #3a414a;
+  --color-surface-400: #4a525e;
+  --color-cyber-cyan: #0dc5c5;
+
+  /* Spacing for h-13 */
+  --spacing-13: 3.25rem;
+}
+
+html.light {
+  --color-canvas-dark: #ffffff;
+  --color-surface-card-dark: #f5f5f5;
+  --color-surface-elevated-dark: #e8e8e8;
+  --color-hairline-on-dark: #e0e0e0;
+  --color-body: #1a1a1a;
+  --color-muted: #888888;
+  --color-muted-strong: #666666;
+  --color-text-muted: #888888;
+  --color-text-secondary: #666666;
+  --color-surface-900: #fafafa;
+  --color-surface-800: #f0f0f0;
+  --color-surface-500: #cccccc;
+  --color-surface-400: #bbbbbb;
+  --color-on-primary: #ffffff;
+  --color-on-dark: #1a1a1a;
+  --color-hairline-on-light: #d0d0d0;
+  --color-border-strong: #999999;
+  --color-primary-disabled: #f0e6a0;
+}
+
+html.light ::-webkit-scrollbar-track {
+  background: var(--color-surface-card-dark);
+}
+html.light ::-webkit-scrollbar-thumb {
+  background: var(--color-surface-elevated-dark);
 }
 
 body {
@@ -55,4 +95,18 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-surface-card-dark);
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-slide-up {
+  animation: slide-up 0.25s ease-out;
 }

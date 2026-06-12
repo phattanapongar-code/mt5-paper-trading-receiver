@@ -1,8 +1,10 @@
 import { useEffect, useState, useMemo } from 'react'
 import client from '../api/client'
+import { useToast } from '../components/Toast'
 import type { BotSignalLog, Bot } from '../types/api'
 
 export default function Signals() {
+  const { addToast } = useToast()
   const [logs, setLogs] = useState<BotSignalLog[]>([])
   const [bots, setBots] = useState<Bot[]>([])
   const [loading, setLoading] = useState(true)
@@ -16,7 +18,7 @@ export default function Signals() {
     ]).then(([logsRes, botsRes]) => {
       setLogs(logsRes.data)
       setBots(botsRes.data)
-    }).catch(() => {}).finally(() => setLoading(false))
+    }).catch(() => addToast('Failed to load signals', 'error')).finally(() => setLoading(false))
   }, [])
 
   const eventTypes = useMemo(() => {
@@ -70,7 +72,7 @@ export default function Signals() {
           </thead>
           <tbody>
             {filteredLogs.map((log) => (
-              <tr key={log.id} className="border-b border-surface-elevated-dark text-text-secondary">
+              <tr key={log.id} className="border-b border-surface-elevated-dark text-body">
                 <td className="py-2 pr-3 whitespace-nowrap font-mono">{new Date(log.created_at * 1000).toLocaleString()}</td>
                 <td className="py-2 pr-3">
                   <span className="font-mono text-primary">{botName(log.bot_id)}</span>

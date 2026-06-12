@@ -34,6 +34,8 @@ def list_strategies() -> list[dict[str, str]]:
 from . import trend_ob as _trend_ob
 from . import ma_cross as _ma_cross
 from . import rsi_meanrev as _rsi_meanrev
+from . import macd_cross as _macd_cross
+from . import bb_breakout as _bb_breakout
 
 register(StrategyMeta(
     id="trend_ob",
@@ -50,6 +52,18 @@ register(StrategyMeta(
 register(StrategyMeta(
     id="rsi_meanrev",
     name="RSI Mean Reversion",
-    description="Buy when RSI exits oversold (<30), sell when RSI exits overbought (>70). Mean-reversion approach, opposes the trend.",
+    description="Buy when RSI exits oversold, sell when RSI exits overbought. Optional trend filter + OB zones.",
     decide=_rsi_meanrev.decide,
+))
+register(StrategyMeta(
+    id="macd_cross",
+    name="MACD Crossover",
+    description="BUY when MACD crosses above Signal, SELL when MACD crosses below Signal. Uses OB zones for entry.",
+    decide=_macd_cross.decide,
+))
+register(StrategyMeta(
+    id="bb_breakout",
+    name="Bollinger Breakout",
+    description="BUY when close breaks above upper band, SELL when close breaks below lower band. Momentum-following.",
+    decide=_bb_breakout.decide,
 ))

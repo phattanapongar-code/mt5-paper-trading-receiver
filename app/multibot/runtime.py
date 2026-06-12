@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app import storage
+from app.alert import alert_engine
 from app.indicators import compute_indicators
 from app.multibot.db import default_parameters, json_text
 
@@ -80,6 +81,39 @@ def _round_lot(value: float, step: float, minimum: float, maximum: float) -> flo
     return round(max(minimum, min(maximum, rounded)), 8)
 
 
+def _pip_value(symbol: str) -> float:
+    s = symbol.upper()
+    if "JPY" in s:
+        return 0.01
+    if "XAU" in s or "XAG" in s:
+        return 0.1
+    return 0.0001
+
+
+def _trail_stop(conn, position: dict[str, Any], bid: float, ask: float, params: dict[str, Any], now: int) -> None:
+    if not params.get("trailing_enabled"):
+        return
+    activate_pips = float(params.get("trail_activation_pips", 10))
+    trail_dist = float(params.get("trail_distance_pips", 5))
+    step_pips = float(params.get("trail_step_pips", 1))
+    pip_val = _pip_value(str(position.get("symbol", "XAUUSD")))
+    entry = float(position["entry"])
+    if position["side"] == "buy":
+        price_diff = bid - entry
+        if price_diff >= activate_pips * pip_val:
+            new_sl = bid - trail_dist * pip_val
+            old_sl = float(position["stop_loss"] or 0)
+            if new_sl > old_sl + step_pips * pip_val:
+                conn.execute("UPDATE bot_positions SET stop_loss=?,updated_at=? WHERE id=?", (new_sl, now, position["id"]))
+    else:
+        price_diff = entry - ask
+        if price_diff >= activate_pips * pip_val:
+            new_sl = ask + trail_dist * pip_val
+            old_sl = float(position["stop_loss"] or 0)
+            if new_sl < old_sl - step_pips * pip_val:
+                conn.execute("UPDATE bot_positions SET stop_loss=?,updated_at=? WHERE id=?", (new_sl, now, position["id"]))
+
+
 def _close_position(conn, position: dict[str, Any], exit_price: float, reason: str, now: int) -> None:
     side = str(position["side"]).lower()
     direction = 1.0 if side == "buy" else -1.0
@@ -110,6 +144,7 @@ def _close_position(conn, position: dict[str, Any], exit_price: float, reason: s
         "UPDATE bot_runtime_state SET consecutive_losses=?,daily_realized_pnl=?,trading_day=?,updated_at=? WHERE bot_id=?",
         (losses, daily, day, now, position["bot_id"]),
     )
+    alert_engine.notify_trade_close(str(position.get("bot_name", "?")), side, pnl, reason, str(position.get("symbol", "?")), r_multiple)
     _log(conn, position["bot_id"], "position_closed", reason, {"position_id": position["id"], "pnl": pnl, "r_multiple": r_multiple})
 
 
@@ -141,6 +176,8 @@ def _evaluate_bot(conn, bot: dict[str, Any], tick: dict[str, Any], now: int) -> 
                 _close_position(conn, p, ask, "sl_hit", now)
             elif p["take_profit"] is not None and ask <= float(p["take_profit"]):
                 _close_position(conn, p, ask, "tp_hit", now)
+        # Trailing stop: move SL toward price after position still open
+        _trail_stop(conn, p, bid, ask, params, now)
         return
 
     pending = conn.execute("SELECT * FROM bot_pending_orders WHERE bot_id=? AND status='pending' ORDER BY id DESC LIMIT 1", (bot_id,)).fetchone()
@@ -161,6 +198,7 @@ def _evaluate_bot(conn, bot: dict[str, Any], tick: dict[str, Any], now: int) -> 
                 (bot_id, wallet_id, po["id"], po["symbol"], po["side"], po["lot"], fill_price, po["stop_loss"], po["take_profit"], now, now),
             )
             conn.execute("UPDATE bot_pending_orders SET status='filled',filled_at=?,updated_at=? WHERE id=?", (now, now, po["id"]))
+            alert_engine.notify_trade_open(bot.get("name", "?"), str(po["side"]), fill_price, float(po["stop_loss"]), float(po["take_profit"]), float(po["lot"]), str(po["symbol"]))
             _log(conn, bot_id, "position_opened", "pending_filled", {"pending_id": po["id"], "position_id": cur.lastrowid, "fill_price": fill_price})
         return
 
@@ -218,9 +256,17 @@ def _evaluate_bot(conn, bot: dict[str, Any], tick: dict[str, Any], now: int) -> 
     _log(conn, bot_id, "pending_created", str(meta.id), {"pending_id": cur.lastrowid, "ob_key": ob_key, "entry": entry, "sl": sl, "tp": tp, "lot": lot, "strategy": meta.id})
 
 
+def _log_safe(conn_eval, bot_id: int, msg: str, exception: Exception) -> None:
+    try:
+        _log(conn_eval, bot_id, "eval_error", msg, {"error": str(exception)})
+    except Exception:
+        pass
+
+
 def process_tick_sync(tick: dict[str, Any]) -> dict[str, Any]:
     now = int(time.time())
     processed = 0
+    errors: list[dict[str, Any]] = []
     with storage.transaction() as conn:
         rows = conn.execute(
             """
@@ -232,49 +278,35 @@ def process_tick_sync(tick: dict[str, Any]) -> dict[str, Any]:
             (tick.get("symbol", "XAUUSD"),),
         ).fetchall()
         for row in rows:
-            _evaluate_bot(conn, dict(row), tick, now)
-            processed += 1
-    return {"ok": True, "processed_bots": processed, "tick": tick}
+            bot = dict(row)
+            try:
+                conn.execute(f"SAVEPOINT bot_{bot['id']}")
+                _evaluate_bot(conn, bot, tick, now)
+                conn.execute(f"RELEASE bot_{bot['id']}")
+                processed += 1
+            except Exception as exc:
+                try:
+                    conn.execute(f"ROLLBACK TO bot_{bot['id']}")
+                except Exception:
+                    pass
+                alert_engine.notify_error(bot.get("name", "?"), str(exc))
+                _log_safe(conn, bot["id"], f"eval_error [{bot.get('strategy_type','?')}]", exc)
+                errors.append({"bot_id": bot["id"], "error": str(exc)})
+    result: dict[str, Any] = {"ok": True, "processed_bots": processed, "tick": tick}
+    if errors:
+        result["errors"] = errors
+    return result
 
 
 class RuntimeHub:
     def __init__(self) -> None:
-        self.queue: asyncio.Queue[dict[str, Any]] | None = None
-        self.worker_task: asyncio.Task | None = None
         self.clients: set[Any] = set()
         self.last_result: dict[str, Any] | None = None
-        self.dropped_ticks = 0
-
-    def ensure_started(self) -> None:
-        if self.queue is None:
-            self.queue = asyncio.Queue(maxsize=1)
-        if self.worker_task is None or self.worker_task.done():
-            self.worker_task = asyncio.create_task(self._worker())
-
-    async def submit(self, tick: dict[str, Any]) -> None:
-        self.ensure_started()
-        assert self.queue is not None
-        if self.queue.full():
-            try:
-                self.queue.get_nowait()
-                self.queue.task_done()
-                self.dropped_ticks += 1
-            except asyncio.QueueEmpty:
-                pass
-        await self.queue.put(tick)
-
-    async def _worker(self) -> None:
-        assert self.queue is not None
-        while True:
-            tick = await self.queue.get()
-            try:
-                self.last_result = await asyncio.to_thread(process_tick_sync, tick)
-                await self.broadcast({"event": "multibot_state", "runtime": self.status()})
-            finally:
-                self.queue.task_done()
 
     async def broadcast(self, payload: dict[str, Any]) -> None:
-        dead = []
+        if not self.clients:
+            return
+        dead: list[Any] = []
         text = json.dumps(payload, ensure_ascii=False)
         for ws in list(self.clients):
             try:
@@ -286,12 +318,22 @@ class RuntimeHub:
 
     def status(self) -> dict[str, Any]:
         return {
-            "running": self.worker_task is not None and not self.worker_task.done(),
-            "queue_size": self.queue.qsize() if self.queue else 0,
             "websocket_clients": len(self.clients),
-            "dropped_ticks": self.dropped_ticks,
             "last_result": self.last_result,
         }
+
+    def set_result(self, result: dict[str, Any]) -> None:
+        self.last_result = result
+        self._maybe_broadcast()
+
+    def _maybe_broadcast(self) -> None:
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(self.broadcast({"event": "multibot_state", "runtime": self.status()}))
+        except RuntimeError:
+            pass
 
 
 hub = RuntimeHub()

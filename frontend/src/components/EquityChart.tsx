@@ -111,6 +111,14 @@ export default function EquityChart({ className = '', height = 300, botId }: Equ
     return () => { cancelled = true }
   }, [botId])
 
+  if (!botId) {
+    return (
+      <div className={`flex items-center justify-center ${className}`}>
+        <div className="text-muted text-sm font-mono py-8">Select a bot to view equity curve</div>
+      </div>
+    )
+  }
+
   if (loading && !hasData) {
     return (
       <div className={`flex items-center justify-center ${className}`}>

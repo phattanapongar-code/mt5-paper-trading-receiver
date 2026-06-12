@@ -1,6 +1,17 @@
 import axios from 'axios'
+import type { AxiosRequestConfig } from 'axios'
 
 const STORAGE_KEY = 'mt5_dashboard_auth'
+
+// Request cache: dedup GET requests with 2s TTL
+const cache = new Map<string, { data: unknown; ts: number }>()
+const CACHE_TTL = 2000
+
+function cacheKey(url: string, params: Record<string, unknown> | undefined): string {
+  if (!params || Object.keys(params).length === 0) return url
+  const sorted = Object.keys(params).sort().map(k => `${k}=${String(params[k])}`).join('&')
+  return `${url}?${sorted}`
+}
 
 const client = axios.create({
   baseURL: '/api',
@@ -8,7 +19,64 @@ const client = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
+// Inject symbol param before cache check
+client.interceptors.request.use((config: AxiosRequestConfig) => {
+  if (_symbol && config.method?.toUpperCase() === 'GET') {
+    const params = config.params ?? {}
+    if (!params.symbol) {
+      params.symbol = _symbol
+      config.params = params
+    }
+  }
+  if (config.method?.toUpperCase() === 'GET') {
+    const key = cacheKey(config.url ?? '', config.params as Record<string, unknown> | undefined)
+    const hit = cache.get(key)
+    if (hit && Date.now() - hit.ts < CACHE_TTL) {
+      const source = axios.CancelToken.source()
+      config.cancelToken = source.token
+      source.cancel(JSON.stringify(hit.data))
+    }
+  }
+  return config
+})
+
+client.interceptors.response.use(
+  (res) => {
+    const method = res.config.method?.toUpperCase()
+    if (method === 'GET') {
+      const key = cacheKey(res.config.url ?? '', res.config.params as Record<string, unknown> | undefined)
+      cache.set(key, { data: res.data, ts: Date.now() })
+    } else {
+      cache.clear() // invalidate cache on any mutation
+    }
+    return res
+  },
+  (err) => {
+    if (axios.isCancel(err) && err.message) {
+      // Return cached data
+      return Promise.resolve({ data: JSON.parse(err.message) })
+    }
+    if (err.response?.status === 401) {
+      clearAuth()
+    }
+    return Promise.reject(err)
+  },
+)
+
+export function clearCache() {
+  cache.clear()
+}
+
 let _auth: { username: string; password: string } | null = null
+
+// Default symbol injected into all requests unless overridden
+let _symbol: string | null = null
+
+export function setDefaultSymbol(s: string) {
+  _symbol = s
+}
+
+
 
 export function setAuth(username: string, password: string) {
   _auth = { username, password }
@@ -44,15 +112,5 @@ export function restoreAuth(): boolean {
     return false
   }
 }
-
-client.interceptors.response.use(
-  (res) => res,
-  (err) => {
-    if (err.response?.status === 401) {
-      clearAuth()
-    }
-    return Promise.reject(err)
-  },
-)
 
 export default client

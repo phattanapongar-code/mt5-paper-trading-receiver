@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 
@@ -65,6 +66,50 @@ def trend_from_ma(ma60: float | None, ma80: float | None, ma300: float | None) -
     return "NEUTRAL"
 
 
+def ema(values: list[float], period: int) -> list[float]:
+    if len(values) < period:
+        return []
+    multiplier = 2.0 / (period + 1)
+    result = [sum(values[:period]) / period]
+    for v in values[period:]:
+        result.append((v - result[-1]) * multiplier + result[-1])
+    return result
+
+
+def macd(closes: list[float], fast: int = 12, slow: int = 26, signal: int = 9) -> dict[str, float | None]:
+    if len(closes) < slow + signal:
+        return {"macd": None, "macd_signal": None, "macd_histogram": None}
+    ema_fast = ema(closes, fast)
+    ema_slow = ema(closes, slow)
+    if not ema_fast or not ema_slow:
+        return {"macd": None, "macd_signal": None, "macd_histogram": None}
+    macd_line = [f - s for f, s in zip(ema_fast, ema_slow)]
+    signal_line = ema(macd_line, signal)
+    if not signal_line:
+        return {"macd": None, "macd_signal": None, "macd_histogram": None}
+    return {
+        "macd": macd_line[-1],
+        "macd_signal": signal_line[-1],
+        "macd_histogram": macd_line[-1] - signal_line[-1],
+    }
+
+
+def bollinger_bands(closes: list[float], period: int = 20, std_dev: float = 2.0) -> dict[str, float | None]:
+    if len(closes) < period:
+        return {"bb_upper": None, "bb_middle": None, "bb_lower": None}
+    sma_val = sma(closes, period)
+    if sma_val is None:
+        return {"bb_upper": None, "bb_middle": None, "bb_lower": None}
+    window = closes[-period:]
+    variance = sum((x - sma_val) ** 2 for x in window) / period
+    std = math.sqrt(variance)
+    return {
+        "bb_upper": round(sma_val + std_dev * std, 2),
+        "bb_middle": round(sma_val, 2),
+        "bb_lower": round(sma_val - std_dev * std, 2),
+    }
+
+
 def compute_indicators(candles: list[dict[str, Any]]) -> dict[str, Any]:
     closed = [c for c in candles if c.get("is_closed", 1)]
     closes = [float(c["close"]) for c in closed]
@@ -74,6 +119,8 @@ def compute_indicators(candles: list[dict[str, Any]]) -> dict[str, Any]:
     atr14 = atr(closed, 14)
     body20 = avg_body(closed, 20)
     rsi14 = rsi(closes, 14)
+    macd_result = macd(closes)
+    bb_result = bollinger_bands(closes)
     trend = trend_from_ma(ma60, ma80, ma300)
     return {
         "closed_candles": len(closed),
@@ -83,6 +130,12 @@ def compute_indicators(candles: list[dict[str, Any]]) -> dict[str, Any]:
         "atr14": atr14,
         "avg_body20": body20,
         "rsi14": rsi14,
+        "macd": macd_result["macd"],
+        "macd_signal": macd_result["macd_signal"],
+        "macd_histogram": macd_result["macd_histogram"],
+        "bb_upper": bb_result["bb_upper"],
+        "bb_middle": bb_result["bb_middle"],
+        "bb_lower": bb_result["bb_lower"],
         "trend": trend,
         "ready_for_ma300": len(closed) >= 300,
     }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import client from '../api/client'
 import { useBotContext } from '../context/BotContext'
+import { useToast } from '../components/Toast'
 import type { BotState, Wallet } from '../types/api'
 
 export default function Trade() {
@@ -8,7 +9,9 @@ export default function Trade() {
   const [selectedBotId, setSelectedBotId] = useState<number>(selectedBot?.id ?? 1)
   const [botState, setBotState] = useState<BotState | null>(null)
   const [wallet, setWallet] = useState<Wallet | null>(null)
+  const [health, setHealth] = useState<{ latest_tick: { bid: number; ask: number } } | null>(null)
   const [loading, setLoading] = useState(true)
+  const { addToast } = useToast()
   const [form, setForm] = useState({
     side: 'buy',
     lot: 0.01,
@@ -28,12 +31,14 @@ export default function Trade() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [stateRes, walletRes] = await Promise.all([
+      const [stateRes, walletRes, healthRes] = await Promise.all([
         client.get<BotState>(`/bots/${selectedBotId}/state`),
         client.get<Wallet>(`/bots/${selectedBotId}/wallet`),
+        fetch('/health').then(r => r.json()),
       ])
       setBotState(stateRes.data)
       setWallet(walletRes.data)
+      setHealth(healthRes as any)
     } catch {
     } finally {
       setLoading(false)
@@ -52,9 +57,10 @@ export default function Trade() {
       const stopLoss = form.stop_loss ? parseFloat(form.stop_loss) : undefined
       const takeProfit = form.take_profit ? parseFloat(form.take_profit) : undefined
 
+      const lot = isNaN(form.lot) ? 0.01 : parseFloat(form.lot.toFixed(2))
       await client.post(`/bots/${selectedBotId}/open`, {
         side: form.side,
-        lot: parseFloat(form.lot.toFixed(2)),
+        lot,
         stop_loss: stopLoss,
         take_profit: takeProfit,
         note: form.note,
@@ -69,8 +75,7 @@ export default function Trade() {
       })
       fetchData()
     } catch (err) {
-      console.error('Open position failed:', err)
-      alert('Failed to open position: ' + (err instanceof Error ? err.message : 'Unknown error'))
+      addToast('Failed to open position: ' + (err instanceof Error ? err.message : 'Unknown error'), 'error')
     }
   }, [form, selectedBotId, fetchData])
 
@@ -79,8 +84,7 @@ export default function Trade() {
       await client.post(`/bots/${selectedBotId}/close`, { note: 'manual_close' })
       fetchData()
     } catch (err) {
-      console.error('Close position failed:', err)
-      alert('Failed to close position: ' + (err instanceof Error ? err.message : 'Unknown error'))
+      addToast('Failed to close position: ' + (err instanceof Error ? err.message : 'Unknown error'), 'error')
     }
   }, [selectedBotId, fetchData])
 
@@ -119,6 +123,32 @@ export default function Trade() {
       <section className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-4">
         <h2 className="text-sm font-semibold text-body mb-3">Open Position</h2>
         <form onSubmit={handleOpen} className="space-y-3">
+          {/* Position Sizing Calculator */}
+          {form.stop_loss && health?.latest_tick && (
+            <div className="bg-surface-elevated-dark/30 rounded p-3 text-xs space-y-1 mb-2">
+              <p className="text-muted font-semibold mb-1">📐 Position Sizing</p>
+              {(() => {
+                const entry = health.latest_tick?.bid ?? 0
+                const sl = parseFloat(form.stop_loss)
+                const riskDist = Math.abs(entry - sl)
+                if (riskDist <= 0) return null
+                const contractSize = 100
+                const riskPercent = 0.01
+                const riskUsd = balance * riskPercent
+                const suggestedLot = Math.floor((riskUsd / (riskDist * contractSize)) / 0.01) * 0.01
+                const minLot = 0.01, maxLot = 10.0
+                const finalLot = Math.max(minLot, Math.min(maxLot, suggestedLot))
+                return (
+                  <>
+                    <div className="flex justify-between"><span className="text-muted">Entry</span><span className="font-mono">${entry.toFixed(2)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted">Risk Distance</span><span className="font-mono">${riskDist.toFixed(2)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted">Risk ({riskPercent*100}%)</span><span className="font-mono text-trading-down">${riskUsd.toFixed(2)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted">Suggested Lot</span><span className="font-mono text-primary">{finalLot.toFixed(2)}</span></div>
+                  </>
+                )
+              })()}
+            </div>
+          )}          
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-muted mb-1">Side</label>
@@ -133,15 +163,15 @@ export default function Trade() {
             </div>
             <div>
               <label className="block text-xs text-muted mb-1">Lot</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0.01"
-                max="10.0"
-                value={form.lot}
-                onChange={(e) => setForm({ ...form, lot: parseFloat(e.target.value) })}
-                className="w-full px-3 py-2 bg-surface-elevated-dark border border-hairline-on-dark rounded-md text-sm text-body focus:outline-none focus:border-primary"
-              />
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  max="10.0"
+                  value={form.lot}
+                  onChange={(e) => setForm({ ...form, lot: e.target.value ? parseFloat(e.target.value) : 0.01 })}
+                  className="w-full px-3 py-2 bg-surface-elevated-dark border border-hairline-on-dark rounded-md text-sm text-body focus:outline-none focus:border-primary"
+                />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">

@@ -1,11 +1,18 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import client from '../api/client'
+import { useToast } from '../components/Toast'
 import type { Profile, Bot, StrategyOption } from '../types/api'
+
+const STRATEGY_COLORS: Record<string, string> = {
+  trend_ob: '#FCD535',
+  rsi_meanrev: '#0ecb81',
+  macd_cross: '#5e7cc4',
+  ma_cross: '#8c6cd8',
+  bb_breakout: '#f6465d',
+}
 import ProfileForm from '../components/ProfileForm'
 import BotForm from '../components/BotForm'
-
-const log = (...args: unknown[]) => console.log('[BotManager]', ...args)
 
 interface EditBotState {
   bot: Bot
@@ -21,6 +28,7 @@ function isLive(bot: Bot): boolean {
 }
 
 export default function BotManager() {
+  const { addToast } = useToast()
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [bots, setBots] = useState<Bot[]>([])
   const [loading, setLoading] = useState(true)
@@ -40,47 +48,60 @@ export default function BotManager() {
       setProfiles(profRes.data)
       setBots(botsRes.data)
       setStrategies(stratRes.data)
-    } catch (err) {
-      log('fetch failed', err)
+    } catch {
+      addToast('Failed to load bots', 'error')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [addToast])
 
   const toggleBot = useCallback(async (botId: number, enabled: boolean) => {
-    await client.post(`/bots/${botId}/${enabled ? 'disable' : 'enable'}`)
-    fetchData()
-  }, [fetchData])
+    try {
+      await client.post(`/bots/${botId}/${enabled ? 'disable' : 'enable'}`)
+      fetchData()
+    } catch { addToast('Failed to toggle bot', 'error') }
+  }, [fetchData, addToast])
 
   const toggleProfile = useCallback(async (profileId: number, enabled: boolean) => {
-    await client.post(`/profiles/${profileId}/${enabled ? 'disable' : 'enable'}`)
-    fetchData()
-  }, [fetchData])
+    try {
+      await client.post(`/profiles/${profileId}/${enabled ? 'disable' : 'enable'}`)
+      fetchData()
+    } catch { addToast('Failed to toggle profile', 'error') }
+  }, [fetchData, addToast])
 
   const deleteProfile = useCallback(async (profileId: number) => {
     if (!confirm('Delete this profile and all its bots?')) return
-    await client.delete(`/profiles/${profileId}`)
-    fetchData()
-  }, [fetchData])
+    try {
+      await client.delete(`/profiles/${profileId}`)
+      addToast('Profile deleted', 'success')
+      fetchData()
+    } catch { addToast('Failed to delete profile', 'error') }
+  }, [fetchData, addToast])
 
   const deleteBot = useCallback(async (botId: number, e: React.MouseEvent) => {
     e.stopPropagation()
     if (!confirm('Delete this bot?')) return
-    await client.delete(`/bots/${botId}`)
-    fetchData()
-  }, [fetchData])
+    try {
+      await client.delete(`/bots/${botId}`)
+      addToast('Bot deleted', 'success')
+      fetchData()
+    } catch { addToast('Failed to delete bot', 'error') }
+  }, [fetchData, addToast])
 
   const saveEdit = useCallback(async () => {
     if (!editBot) return
-    await client.put(`/bots/${editBot.bot.id}`, {
-      name: editBot.name,
-      symbol: editBot.symbol,
-      timeframe: editBot.timeframe,
-      strategy_type: editBot.strategy_type,
-    })
-    setEditBot(null)
-    fetchData()
-  }, [editBot, fetchData])
+    try {
+      await client.put(`/bots/${editBot.bot.id}`, {
+        name: editBot.name,
+        symbol: editBot.symbol,
+        timeframe: editBot.timeframe,
+        strategy_type: editBot.strategy_type,
+      })
+      setEditBot(null)
+      addToast('Bot updated', 'success')
+      fetchData()
+    } catch { addToast('Failed to update bot', 'error') }
+  }, [editBot, fetchData, addToast])
 
   useEffect(() => {
     fetchData()
@@ -163,6 +184,7 @@ export default function BotManager() {
                           IDLE
                         </span>
                       )}
+                      <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: STRATEGY_COLORS[bot.strategy_type] ?? '#707a8a' }} />
                       <span className="text-xs font-mono text-muted">{bot.strategy_type} v{bot.strategy_version}</span>
                       <span className="text-xs font-mono text-muted">{bot.symbol} {bot.timeframe}</span>
                     </div>

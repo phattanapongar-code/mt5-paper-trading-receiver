@@ -52,8 +52,8 @@ export default function PnLDistribution({ data: pnlData, className = '' }: PnLDi
 
     const histData: HistogramData[] = pnlData
       .filter((v) => v !== 0)
-      .map((v) => ({
-        time: (Date.now() / 1000) as any,
+      .map((v, i) => ({
+        time: (1711929600 + i * 60) as any,
         value: v,
         color: v >= 0 ? '#0ecb81' : '#f6465d',
       }))

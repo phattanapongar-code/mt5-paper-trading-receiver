@@ -32,6 +32,67 @@ export interface Indicators {
   atr14: number | null
   avg_body20: number | null
   trend: string | null
+  rsi14: number | null
+  macd: number | null
+  macd_signal: number | null
+  macd_histogram: number | null
+  bb_upper: number | null
+  bb_middle: number | null
+  bb_lower: number | null
+}
+
+export interface BacktestResult {
+  ok: boolean
+  total_trades: number
+  wins: number
+  losses: number
+  win_rate: number
+  net_pnl: number
+  gross_profit: number
+  gross_loss: number
+  profit_factor: number
+  sharpe_ratio: number
+  max_drawdown_pct: number
+  avg_r: number
+  total_r: number
+  final_balance: number
+  return_pct: number
+  equity_curve: { time: number; equity: number }[]
+  trades: Trade[]
+  run_id?: number
+}
+
+export interface BacktestHistory {
+  id: number
+  strategy_type: string
+  symbol: string
+  timeframe: string
+  start_time: number
+  end_time: number
+  total_trades: number
+  net_pnl: number
+  win_rate: number
+  profit_factor: number
+  sharpe_ratio: number
+  max_drawdown_pct: number
+  return_pct: number
+  created_at: number
+}
+
+export interface OptimizeResult {
+  ok: boolean
+  strategy_type: string
+  param_ranges: Record<string, unknown>
+  total_combinations: number
+  optimization_metric: string
+  results: Record<string, unknown>[]
+  run_id?: number
+}
+
+export interface AlertConfig {
+  bot_token: string
+  chat_id: string
+  enabled: boolean
 }
 
 export interface Trade {

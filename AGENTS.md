@@ -256,6 +256,23 @@ curl -X POST http://localhost:5050/price -H "Content-Type: application/json" -d 
 
 ## Version History
 
+- **v2.4.0**: Polish release
+  - Mobile responsive sidebar (hamburger overlay on small screens)
+  - Request dedup + cache (2s TTL on GET requests, auto-return cached data)
+  - Dark/Light theme toggle in sidebar (persisted to localStorage)
+  - Drawing tools on chart (trendline, horizontal, vertical, rectangle, ray + color picker + delete)
+- **v2.3.0**: Bug fix + feature release
+  - Per-bot savepoint isolation (one bot crash no longer kills all bots)
+  - Charts: MA lines now compute SMA from candle data, different colors per MA, price line leak fixed
+  - PnLDistribution: histogram timestamp bug fixed
+  - Error Boundary + 404 page + Toast notification system
+  - Replay page routed
+  - Multi-symbol query params on all endpoints
+  - Keyboard shortcuts (1-9,0,b), CSV export, position sizing calculator
+  - Pending order countdown timer
+  - Per-bot health check in /health
+  - CSS theme cleanup: all undefined variables added
+  - Embedded dashboard (`dashboard/index.html`) removed (React SPA replaces it)
 - **v2.0**: Architecture refactor — unified DB, merged PaperEngine → MultiBot, removed legacy engines
 - **v1.2.1**: Dashboard price hotfix (XAUUSD Bid/Ask/Mid/Spread/Tick age)
 - **v1.2**: Multi-bot runtime fan-out

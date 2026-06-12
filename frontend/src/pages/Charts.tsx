@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { createChart, ColorType, createSeriesMarkers, type IChartApi, type ISeriesApi, type ISeriesMarkersPluginApi, type CandlestickData, type LineData, type UTCTimestamp, type Time, CandlestickSeries, LineSeries } from 'lightweight-charts'
 import client from '../api/client'
 import { useBotContext } from '../context/BotContext'
+import { useDrawingTools } from '../components/DrawingTools'
+import LoadingSpinner from '../components/LoadingSpinner'
 import type { Candle, Indicators, OrderBlock, MarketStructureState } from '../types/api'
 
 interface CandlePendingOrder {
@@ -14,12 +16,13 @@ type TF = (typeof TIMEFRAMES)[number]
 export default function Charts() {
   const { allBots } = useBotContext()
   const chartRef = useRef<HTMLDivElement>(null)
-  const chartApiRef = useRef<IChartApi | null>(null)
+  const [chartApi, setChartApi] = useState<IChartApi | null>(null)
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
   const ma60SeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
   const ma80SeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
   const ma300SeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
   const markersPluginRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null)
+  const priceLinesRef = useRef<ReturnType<ISeriesApi<'Candlestick'>['createPriceLine']>[]>([])
 
   const [timeframe, setTimeframe] = useState<TF>('M15')
   const [pendingBotId, setPendingBotId] = useState<number | null>(null)
@@ -28,8 +31,32 @@ export default function Charts() {
   const [obs, setObs] = useState<OrderBlock[]>([])
   const [structure, setStructure] = useState<MarketStructureState | null>(null)
   const [pending, setPending] = useState<CandlePendingOrder | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const [visibleIndicators, setVisibleIndicators] = useState<Record<string, boolean>>({ rsi: false, macd: false, bb: false })
+  const rsiSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const rsiOverboughtRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const rsiOversoldRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const macdLineRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const macdSignalRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const bbUpperRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const bbLowerRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const bbMiddleRef = useRef<ISeriesApi<'Line'> | null>(null)
+
+  const toggleIndicator = useCallback((key: string) => {
+    setVisibleIndicators(prev => {
+      const next = { ...prev, [key]: !prev[key] }
+      return next
+    })
+  }, [])
+
+  const {
+    activeTool, setActiveTool, color, setColor, selectedId, drawingCount,
+    overlayRef, handlers, clearAll,
+    renderDrawings, liveSvg,
+  } = useDrawingTools(chartApi, chartRef as React.RefObject<HTMLDivElement | null>)
 
   const fetchData = useCallback(async (tf: TF) => {
+    setRefreshing(true)
     try {
       const pendingParams: Record<string, unknown> = { limit: 1 }
       if (pendingBotId) pendingParams.bot_id = pendingBotId
@@ -47,6 +74,8 @@ export default function Charts() {
       setPending(pendingRes.data[0] ?? null)
     } catch {
       // ignore
+    } finally {
+      setRefreshing(false)
     }
   }, [pendingBotId])
 
@@ -99,23 +128,26 @@ export default function Charts() {
       lineWidth: 1,
       lastValueVisible: false,
       priceFormat: { type: 'custom' as const, formatter: (p: number) => p.toFixed(2) },
+      title: 'MA60',
     })
     const ma80 = chart.addSeries(LineSeries, {
-      color: '#FCD535',
+      color: '#5e7cc4',
       lineWidth: 1,
       lastValueVisible: false,
       priceFormat: { type: 'custom' as const, formatter: (p: number) => p.toFixed(2) },
+      title: 'MA80',
     })
     const ma300 = chart.addSeries(LineSeries, {
-      color: '#FCD535',
+      color: '#8c6cd8',
       lineWidth: 1,
       lastValueVisible: false,
       priceFormat: { type: 'custom' as const, formatter: (p: number) => p.toFixed(2) },
+      title: 'MA300',
     })
 
     markersPluginRef.current = createSeriesMarkers(candlesSeries)
 
-    chartApiRef.current = chart
+    setChartApi(chart)
     candleSeriesRef.current = candlesSeries
     ma60SeriesRef.current = ma60
     ma80SeriesRef.current = ma80
@@ -135,6 +167,15 @@ export default function Charts() {
     }
   }, [])
 
+  function computeSma(data: CandlestickData[], period: number): LineData[] {
+    return data.map((c, i) => {
+      if (i < period - 1) return { time: c.time, value: NaN }
+      let sum = 0
+      for (let j = 0; j < period; j++) sum += data[i - j].close
+      return { time: c.time, value: sum / period }
+    }).filter(d => !isNaN(d.value))
+  }
+
   useEffect(() => {
     const series = candleSeriesRef.current
     if (!series) return
@@ -152,58 +193,47 @@ export default function Charts() {
 
     series.setData(candleData)
 
-    if (ma60SeriesRef.current && indicators?.ma60 != null) {
-      const lineData: LineData[] = candles
-        .filter((c) => c.open_time)
-        .map((c) => ({ time: c.open_time as UTCTimestamp, value: indicators.ma60! }))
-        .sort((a, b) => Number(a.time) - Number(b.time))
-      ma60SeriesRef.current.setData(lineData)
+    if (ma60SeriesRef.current) {
+      ma60SeriesRef.current.setData(computeSma(candleData, 60))
     }
-    if (ma80SeriesRef.current && indicators?.ma80 != null) {
-      const lineData: LineData[] = candles
-        .filter((c) => c.open_time)
-        .map((c) => ({ time: c.open_time as UTCTimestamp, value: indicators.ma80! }))
-        .sort((a, b) => Number(a.time) - Number(b.time))
-      ma80SeriesRef.current.setData(lineData)
+    if (ma80SeriesRef.current) {
+      ma80SeriesRef.current.setData(computeSma(candleData, 80))
     }
-    if (ma300SeriesRef.current && indicators?.ma300 != null) {
-      const lineData: LineData[] = candles
-        .filter((c) => c.open_time)
-        .map((c) => ({ time: c.open_time as UTCTimestamp, value: indicators.ma300! }))
-        .sort((a, b) => Number(a.time) - Number(b.time))
-      ma300SeriesRef.current.setData(lineData)
+    if (ma300SeriesRef.current) {
+      ma300SeriesRef.current.setData(computeSma(candleData, 300))
     }
 
-    // clear old price lines
-    const chart = chartApiRef.current
-    if (chart) {
-      const existing = (series as any).priceLines?.() ?? []
-      for (const pl of existing) {
-        try { (series as any).removePriceLine(pl) } catch {}
-      }
+    // Remove old price lines
+    for (const pl of priceLinesRef.current) {
+      try { series.removePriceLine(pl) } catch { /* already removed */ }
+    }
+    priceLinesRef.current = []
+
+    const addPriceLine = (opts: Parameters<ISeriesApi<'Candlestick'>['createPriceLine']>[0]) => {
+      priceLinesRef.current.push(series.createPriceLine(opts))
     }
 
     // OB zones: horizontal lines at ob_high and ob_low
     for (const ob of obs) {
       const obColor = ob.side === 'buy' ? '#0ecb81' : '#f6465d'
-      series.createPriceLine({ price: ob.ob_high, color: obColor, lineStyle: 2, lineWidth: 1, axisLabelVisible: true, title: `${ob.side.toUpperCase()} OB` })
-      series.createPriceLine({ price: ob.ob_low, color: obColor, lineStyle: 2, lineWidth: 1, axisLabelVisible: false })
+      addPriceLine({ price: ob.ob_high, color: obColor, lineStyle: 2, lineWidth: 1, axisLabelVisible: true, title: `${ob.side.toUpperCase()} OB` })
+      addPriceLine({ price: ob.ob_low, color: obColor, lineStyle: 2, lineWidth: 1, axisLabelVisible: false })
     }
 
     // Swing high/low lines
     if (structure?.latest_swing_high?.price) {
-      series.createPriceLine({ price: structure.latest_swing_high.price, color: '#FCD535', lineStyle: 3, lineWidth: 1, axisLabelVisible: true, title: 'SW H' })
+      addPriceLine({ price: structure.latest_swing_high.price, color: '#FCD535', lineStyle: 3, lineWidth: 1, axisLabelVisible: true, title: 'SW H' })
     }
     if (structure?.latest_swing_low?.price) {
-      series.createPriceLine({ price: structure.latest_swing_low.price, color: '#FCD535', lineStyle: 3, lineWidth: 1, axisLabelVisible: true, title: 'SW L' })
+      addPriceLine({ price: structure.latest_swing_low.price, color: '#FCD535', lineStyle: 3, lineWidth: 1, axisLabelVisible: true, title: 'SW L' })
     }
 
     // Pending order lines
     if (pending) {
       const pendColor = pending.side === 'buy' ? '#0ecb81' : '#f6465d'
-      series.createPriceLine({ price: pending.entry, color: pendColor, lineStyle: 0, lineWidth: 2, axisLabelVisible: true, title: `PEND ${pending.side.toUpperCase()}` })
-      series.createPriceLine({ price: pending.stop_loss, color: '#f6465d', lineStyle: 1, lineWidth: 1, axisLabelVisible: true, title: 'PEND SL' })
-      series.createPriceLine({ price: pending.take_profit, color: '#0ecb81', lineStyle: 1, lineWidth: 1, axisLabelVisible: true, title: 'PEND TP' })
+      addPriceLine({ price: pending.entry, color: pendColor, lineStyle: 0, lineWidth: 2, axisLabelVisible: true, title: `PEND ${pending.side.toUpperCase()}` })
+      addPriceLine({ price: pending.stop_loss, color: '#f6465d', lineStyle: 1, lineWidth: 1, axisLabelVisible: true, title: 'PEND SL' })
+      addPriceLine({ price: pending.take_profit, color: '#0ecb81', lineStyle: 1, lineWidth: 1, axisLabelVisible: true, title: 'PEND TP' })
     }
 
     // Swing point markers
@@ -217,7 +247,87 @@ export default function Charts() {
     if (markers.length) {
       markersPluginRef.current?.setMarkers(markers)
     }
-  }, [candles, indicators, obs, structure, pending])
+
+    // Indicator overlays on main chart
+    const chart = chartApi
+    if (!chart) return
+
+    // RSI overlay
+    if (visibleIndicators.rsi) {
+      if (!rsiSeriesRef.current) {
+        rsiSeriesRef.current = chart.addSeries(LineSeries, {
+          color: '#8c6cd8', lineWidth: 1, title: 'RSI(14)',
+          priceFormat: { type: 'custom' as const, formatter: (p: number) => p.toFixed(2) },
+        })
+        rsiOverboughtRef.current = chart.addSeries(LineSeries, {
+          color: '#f6465d', lineWidth: 1, lineStyle: 2, lastValueVisible: false,
+          priceFormat: { type: 'custom' as const, formatter: () => '' },
+        })
+        rsiOversoldRef.current = chart.addSeries(LineSeries, {
+          color: '#0ecb81', lineWidth: 1, lineStyle: 2, lastValueVisible: false,
+          priceFormat: { type: 'custom' as const, formatter: () => '' },
+        })
+      }
+      if (rsiSeriesRef.current && indicators?.rsi14 != null) {
+        const lastTime = candleData.length > 0 ? candleData[candleData.length - 1].time : 0
+        rsiSeriesRef.current.setData([{ time: lastTime as UTCTimestamp, value: indicators.rsi14 }])
+        rsiOverboughtRef.current?.setData([{ time: lastTime as UTCTimestamp, value: 70 }])
+        rsiOversoldRef.current?.setData([{ time: lastTime as UTCTimestamp, value: 30 }])
+      }
+    } else {
+      if (rsiSeriesRef.current) { chart.removeSeries(rsiSeriesRef.current); rsiSeriesRef.current = null }
+      if (rsiOverboughtRef.current) { chart.removeSeries(rsiOverboughtRef.current); rsiOverboughtRef.current = null }
+      if (rsiOversoldRef.current) { chart.removeSeries(rsiOversoldRef.current); rsiOversoldRef.current = null }
+    }
+
+    // MACD overlay
+    if (visibleIndicators.macd) {
+      if (!macdLineRef.current) {
+        macdLineRef.current = chart.addSeries(LineSeries, {
+          color: '#FCD535', lineWidth: 1, title: 'MACD',
+        })
+        macdSignalRef.current = chart.addSeries(LineSeries, {
+          color: '#5e7cc4', lineWidth: 1, title: 'Signal',
+        })
+      }
+      if (macdLineRef.current && indicators?.macd != null) {
+        const lastTime = candleData.length > 0 ? candleData[candleData.length - 1].time : 0
+        macdLineRef.current.setData([{ time: lastTime as UTCTimestamp, value: indicators.macd }])
+        macdSignalRef.current?.setData([{ time: lastTime as UTCTimestamp, value: indicators.macd_signal ?? 0 }])
+      }
+    } else {
+      if (macdLineRef.current) { chart.removeSeries(macdLineRef.current); macdLineRef.current = null }
+      if (macdSignalRef.current) { chart.removeSeries(macdSignalRef.current); macdSignalRef.current = null }
+    }
+
+    // BB overlay
+    if (visibleIndicators.bb) {
+      if (!bbUpperRef.current) {
+        bbUpperRef.current = chart.addSeries(LineSeries, {
+          color: '#FCD535', lineWidth: 1, lineStyle: 2, lastValueVisible: false, title: 'BB Upper',
+        })
+        bbMiddleRef.current = chart.addSeries(LineSeries, {
+          color: '#FCD535', lineWidth: 1, lastValueVisible: false, title: 'BB Mid',
+        })
+        bbLowerRef.current = chart.addSeries(LineSeries, {
+          color: '#FCD535', lineWidth: 1, lineStyle: 2, lastValueVisible: false, title: 'BB Lower',
+        })
+      }
+      if (bbUpperRef.current && indicators?.bb_upper != null && indicators?.bb_middle != null && indicators?.bb_lower != null) {
+        const lastTime = candleData.length > 0 ? candleData[candleData.length - 1].time : 0
+        const uuid = lastTime as UTCTimestamp
+        bbUpperRef.current.setData([{ time: uuid, value: indicators.bb_upper }])
+        bbMiddleRef.current?.setData([{ time: uuid, value: indicators.bb_middle }])
+        bbLowerRef.current?.setData([{ time: uuid, value: indicators.bb_lower }])
+      }
+    } else {
+      if (bbUpperRef.current) { chart.removeSeries(bbUpperRef.current); bbUpperRef.current = null }
+      if (bbMiddleRef.current) { chart.removeSeries(bbMiddleRef.current); bbMiddleRef.current = null }
+      if (bbLowerRef.current) { chart.removeSeries(bbLowerRef.current); bbLowerRef.current = null }
+    }
+
+    chart.timeScale().fitContent()
+  }, [candles, indicators, obs, structure, pending, visibleIndicators, chartApi])
 
   return (
     <div className="p-6 space-y-4">
@@ -248,18 +358,73 @@ export default function Charts() {
                 {tf}
               </button>
             ))}
+            {refreshing && <LoadingSpinner size={14} />}
+          </div>
+          <div className="flex gap-1">
+            {[{key:'rsi',label:'RSI'},{key:'macd',label:'MACD'},{key:'bb',label:'BB'}].map(t => (
+              <button key={t.key}
+                onClick={() => toggleIndicator(t.key)}
+                className={`px-2 py-1.5 text-xs rounded border cursor-pointer transition-colors ${
+                  visibleIndicators[t.key] ? 'bg-primary/10 text-primary border-primary/50' : 'bg-surface-card-dark text-muted border-hairline-on-dark hover:border-surface-elevated-dark'
+                }`}
+              >{t.label}</button>
+            ))}
+          </div>
+          {/* Drawing toolbar */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {(['trendline', 'horizontal', 'vertical', 'rectangle', 'ray'] as const).map(tool => (
+              <button
+                key={tool}
+                onClick={() => { setActiveTool(activeTool === tool ? null : tool) }}
+                className={`px-2.5 py-1.5 text-xs rounded-md border cursor-pointer transition-colors ${
+                  activeTool === tool
+                    ? 'bg-primary/10 text-primary border-primary/50'
+                    : 'bg-surface-card-dark text-muted border-hairline-on-dark hover:border-surface-elevated-dark'
+                }`}
+              >
+                {tool === 'trendline' ? '↗' : tool === 'horizontal' ? '—' : tool === 'vertical' ? '│' : tool === 'rectangle' ? '▭' : '➡'}
+                <span className="ml-1 hidden sm:inline">{tool}</span>
+              </button>
+            ))}
+            <input
+              type="color"
+              value={color}
+              onChange={e => setColor(e.target.value)}
+              className="w-6 h-6 rounded cursor-pointer border-0 p-0 bg-transparent"
+              title="Color"
+            />
+            {drawingCount > 0 && (
+              <button onClick={clearAll} className="px-2 py-1.5 text-xs rounded-md border border-hairline-on-dark bg-surface-card-dark text-muted hover:text-trading-down cursor-pointer">
+                ✕ Clear
+              </button>
+            )}
+            {selectedId && <span className="text-[10px] text-muted">R-click delete</span>}
           </div>
         </div>
       </div>
 
-      <div ref={chartRef} className="rounded-lg overflow-hidden border border-hairline-on-dark" />
+      <div className="relative rounded-lg overflow-hidden border border-hairline-on-dark">
+        <div ref={chartRef} />
+        <svg
+          ref={overlayRef}
+          className="absolute inset-0 z-10"
+          style={{ pointerEvents: activeTool ? 'auto' : 'none' }}
+          {...handlers}
+        >
+          {renderDrawings()}
+          {liveSvg}
+        </svg>
+      </div>
 
       {indicators && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-8 gap-3">
           <IndiCard label="MA60" value={indicators.ma60?.toFixed(2) ?? '—'} color="#FCD535" />
-          <IndiCard label="MA80" value={indicators.ma80?.toFixed(2) ?? '—'} color="#FCD535" />
-          <IndiCard label="MA300" value={indicators.ma300?.toFixed(2) ?? '—'} color="#FCD535" />
-          <IndiCard label="ATR14" value={indicators.atr14?.toFixed(2) ?? '—'} color="#FCD535" />
+          <IndiCard label="MA80" value={indicators.ma80?.toFixed(2) ?? '—'} color="#5e7cc4" />
+          <IndiCard label="ATR14" value={indicators.atr14?.toFixed(2) ?? '—'} color="#eaecef" />
+          <IndiCard label="RSI14" value={indicators.rsi14?.toFixed(1) ?? '—'} color={indicators.rsi14 != null ? (indicators.rsi14 > 70 ? '#f6465d' : indicators.rsi14 < 30 ? '#0ecb81' : '#8c6cd8') : '#eaecef'} />
+          <IndiCard label="MACD" value={indicators.macd?.toFixed(2) ?? '—'} color="#FCD535" />
+          <IndiCard label="Signal" value={indicators.macd_signal?.toFixed(2) ?? '—'} color="#5e7cc4" />
+          <IndiCard label="BB Mid" value={indicators.bb_middle?.toFixed(2) ?? '—'} color="#FCD535" />
           <IndiCard
             label="Trend"
             value={indicators.trend ?? '—'}

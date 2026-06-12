@@ -135,18 +135,18 @@ export default function Compare() {
           </thead>
           <tbody>
             {data.map((b) => (
-              <tr key={b.bot_id} className="border-b border-surface-elevated-dark text-text-secondary">
+              <tr key={b.bot_id} className="border-b border-surface-elevated-dark text-body">
                 <td className="py-2 pr-3">{b.name}
                   <span className="ml-2 text-muted">{b.profile_name}</span>
                 </td>
                 <td className="py-2 pr-3">{b.strategy_type} {b.strategy_version}</td>
-                <td className="text-right py-2 pr-3 font-mono">{b.balance.toFixed(2)}</td>
-                <td className={`text-right py-2 pr-3 font-mono ${(b.net_pnl ?? 0) >= 0 ? 'text-trading-up' : 'text-rose-500'}`}>
+                <td className="text-right py-2 pr-3 font-mono">${b.balance?.toFixed(2) ?? '0.00'}</td>
+                <td className={`text-right py-2 pr-3 font-mono ${(b.net_pnl ?? 0) >= 0 ? 'text-trading-up' : 'text-trading-down'}`}>
                   {(b.net_pnl ?? 0) >= 0 ? '+' : ''}{(b.net_pnl ?? 0).toFixed(2)}
                 </td>
-                <td className="text-right py-2 pr-3 font-mono">{b.closed_trades > 0 ? `${(b.win_rate * 100).toFixed(1)}%` : '-'}</td>
+                <td className="text-right py-2 pr-3 font-mono">{b.closed_trades > 0 ? `${((b.win_rate ?? 0) * 100).toFixed(1)}%` : '-'}</td>
                 <td className="text-right py-2 pr-3 font-mono">{b.closed_trades}</td>
-                <td className="text-right py-2 pr-3 font-mono text-rose-500">{b.max_drawdown.toFixed(2)}</td>
+                <td className="text-right py-2 pr-3 font-mono text-trading-down">{b.max_drawdown != null ? b.max_drawdown.toFixed(2) : '0.00'}</td>
               </tr>
             ))}
           </tbody>
