@@ -20,6 +20,7 @@ export default function TradeHistory() {
   const [loading, setLoading] = useState(true)
   const [sideFilter, setSideFilter] = useState('all')
   const [dateFilter, setDateFilter] = useState('all')
+  const [expandedId, setExpandedId] = useState<number | null>(null)
   const cancelledRef = useRef(false)
 
   const fetchData = useCallback(async () => {
@@ -63,28 +64,38 @@ export default function TradeHistory() {
   const stats = useMemo(() => {
     const closed = filteredTrades.filter((t) => t.status === 'closed')
     const pnls = closed.map((t) => t.pnl ?? 0)
+    const netPnls = closed.map((t) => t.net_pnl ?? t.pnl ?? 0)
     const rs = closed.map((t) => t.r_multiple ?? 0).filter((r) => r !== 0)
-    const wins = pnls.filter((p) => p > 0)
-    const losses = pnls.filter((p) => p < 0)
-    const grossProfit = wins.reduce((s, v) => s + v, 0)
-    const grossLoss = Math.abs(losses.reduce((s, v) => s + v, 0))
+    const wins = netPnls.filter((p) => p > 0)
+    const losses = netPnls.filter((p) => p < 0)
+    const grossProfit = netPnls.filter((p) => p > 0).reduce((s, v) => s + v, 0)
+    const grossLoss = Math.abs(netPnls.filter((p) => p < 0).reduce((s, v) => s + v, 0))
     let maxDd = 0, peak = 0, cumulative = 0
-    for (const p of pnls) {
+    for (const p of netPnls) {
       cumulative += p; peak = Math.max(peak, cumulative)
       maxDd = Math.max(maxDd, peak - cumulative)
     }
     const avgR = rs.length > 0 ? rs.reduce((s, v) => s + v, 0) / rs.length : 0
+    const totalCommission = closed.reduce((s, t) => s + (t.commission ?? 0), 0)
+    const totalSpread = closed.reduce((s, t) => s + (t.spread_cost ?? 0), 0)
+    const totalSlippage = closed.reduce((s, t) => s + Math.abs(t.slippage ?? 0), 0)
     return {
       closed_trades: closed.length,
       wins: wins.length,
       losses: losses.length,
       win_rate: closed.length > 0 ? wins.length / closed.length : 0,
       profit_factor: grossLoss > 0 ? grossProfit / grossLoss : null,
-      net_pnl: pnls.reduce((s, v) => s + v, 0),
+      net_pnl: netPnls.reduce((s, v) => s + v, 0),
+      gross_pnl: pnls.reduce((s, v) => s + v, 0),
+      total_commission: totalCommission,
+      total_spread_cost: totalSpread,
+      total_slippage: totalSlippage,
       max_drawdown_usd: maxDd,
       average_r: avgR,
     }
   }, [filteredTrades])
+
+  const costColsVisible = filteredTrades.some((t) => t.commission !== undefined)
 
   if (loading) {
     return (
@@ -116,9 +127,9 @@ export default function TradeHistory() {
           </select>
           <span className="text-xs text-muted font-mono self-center">{filteredTrades.length} trades</span>
           <button onClick={() => {
-            const header = 'ID,Bot,Side,Lot,Entry,Exit,PnL,R-Multiple,Exit Reason,Opened,Closed'
+            const header = 'ID,Bot,Side,Lot,Entry,Exit,PnL,Gross PnL,Commission,Slippage,Spread Cost,Net PnL,R-Multiple,Exit Reason,Opened,Closed'
             const rows = filteredTrades.map(t =>
-              [t.id, t.bot_id ?? '', t.side, t.lot, t.entry, t.exit ?? '', t.pnl ?? '', t.r_multiple ?? '', t.exit_reason ?? '', fmtTime(t.opened_at), fmtTime(t.closed_at)].join(',')
+              [t.id, t.bot_id ?? '', t.side, t.lot, t.entry, t.exit ?? '', t.pnl ?? '', t.pnl ?? '', t.commission ?? '', t.slippage ?? '', t.spread_cost ?? '', t.net_pnl ?? t.pnl ?? '', t.r_multiple ?? '', t.exit_reason ?? '', fmtTime(t.opened_at), fmtTime(t.closed_at)].join(',')
             )
             const blob = new Blob(['\uFEFF' + header + '\n' + rows.join('\n')], { type: 'text/csv;charset=utf-8;' })
             const url = URL.createObjectURL(blob)
@@ -135,7 +146,15 @@ export default function TradeHistory() {
           <StatCard label="Total Trades" value={stats.closed_trades} />
           <StatCard label="Win Rate" value={stats.win_rate != null ? `${(stats.win_rate * 100).toFixed(1)}%` : '—'} accent={stats.win_rate != null && stats.win_rate >= 0.5 ? 'trading-up' : 'trading-down'} />
           <StatCard label="Profit Factor" value={stats.profit_factor?.toFixed(2) ?? '—'} accent={stats.profit_factor != null && stats.profit_factor >= 1.5 ? 'trading-up' : stats.profit_factor != null && stats.profit_factor >= 1 ? 'primary' : 'trading-down'} />
-          <StatCard label="Total PnL" value={`${stats.net_pnl >= 0 ? '+' : ''}$${stats.net_pnl.toFixed(2)}`} accent={stats.net_pnl >= 0 ? 'trading-up' : 'trading-down'} />
+          <StatCard label="Net PnL" value={`${stats.net_pnl >= 0 ? '+' : ''}$${stats.net_pnl.toFixed(2)}`} accent={stats.net_pnl >= 0 ? 'trading-up' : 'trading-down'} />
+          {costColsVisible && (
+            <>
+              <StatCard label="Gross PnL" value={`${stats.gross_pnl >= 0 ? '+' : ''}$${stats.gross_pnl.toFixed(2)}`} accent="muted" />
+              <StatCard label="Total Commission" value={`$${stats.total_commission.toFixed(2)}`} accent="trading-down" />
+              <StatCard label="Total Spread" value={`$${stats.total_spread_cost.toFixed(2)}`} accent="trading-down" />
+              <StatCard label="Total Slippage" value={`$${stats.total_slippage.toFixed(2)}`} accent="trading-down" />
+            </>
+          )}
           <StatCard label="Winners" value={stats.wins} accent="trading-up" />
           <StatCard label="Losers" value={stats.losses} accent="trading-down" />
           <StatCard label="Max DD" value={`$${stats.max_drawdown_usd.toFixed(2)}`} accent="trading-down" />
@@ -148,6 +167,7 @@ export default function TradeHistory() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-hairline-on-dark text-muted text-xs">
+                <th className="text-left p-3 font-medium w-6"></th>
                 <th className="text-left p-3 font-medium">ID</th>
                 <th className="text-left p-3 font-medium">Bot</th>
                 <th className="text-left p-3 font-medium">Side</th>
@@ -155,6 +175,14 @@ export default function TradeHistory() {
                 <th className="text-right p-3 font-medium">Entry</th>
                 <th className="text-right p-3 font-medium">Exit</th>
                 <th className="text-right p-3 font-medium">PnL</th>
+                {costColsVisible && (
+                  <>
+                    <th className="text-right p-3 font-medium">Comm.</th>
+                    <th className="text-right p-3 font-medium">Slip.</th>
+                    <th className="text-right p-3 font-medium">Spread</th>
+                    <th className="text-right p-3 font-medium">Net PnL</th>
+                  </>
+                )}
                 <th className="text-right p-3 font-medium">R</th>
                 <th className="text-left p-3 font-medium">Exit Reason</th>
                 <th className="text-left p-3 font-medium">Opened</th>
@@ -162,31 +190,54 @@ export default function TradeHistory() {
               </tr>
             </thead>
             <tbody>
-              {filteredTrades.map((t) => (
-                <tr key={t.id} className="border-b border-surface-elevated-dark hover:bg-surface-card-dark/50">
-                  <td className="p-3 font-mono text-xs">{t.id}</td>
-                  <td className="p-3 font-mono text-xs text-muted">
-                    {allBots.find((b) => b.id === t.bot_id)?.name ?? `#${t.bot_id}`}
-                  </td>
-                  <td className="p-3">
-                    <span className={`text-xs font-semibold ${t.side === 'buy' ? 'text-trading-up' : 'text-trading-down'}`}>
-                      {t.side.toUpperCase()}
-                    </span>
-                  </td>
-                  <td className="p-3 font-mono text-xs">{t.lot}</td>
-                  <td className="p-3 font-mono text-xs text-right">{t.entry.toFixed(2)}</td>
-                  <td className="p-3 font-mono text-xs text-right">{t.exit?.toFixed(2) ?? '—'}</td>
-                  <td className={`p-3 font-mono text-xs text-right ${t.pnl != null ? (t.pnl >= 0 ? 'text-trading-up' : 'text-trading-down') : ''}`}>
-                    {t.pnl != null ? `${t.pnl >= 0 ? '+' : ''}$${t.pnl.toFixed(2)}` : '—'}
-                  </td>
-                  <td className={`p-3 font-mono text-xs text-right ${t.r_multiple != null ? (t.r_multiple >= 0 ? 'text-trading-up' : 'text-trading-down') : ''}`}>
-                    {t.r_multiple?.toFixed(2) ?? '—'}
-                  </td>
-                  <td className="p-3 text-xs text-muted">{t.exit_reason ?? '—'}</td>
-                  <td className="p-3 text-xs text-muted font-mono">{fmtTime(t.opened_at)}</td>
-                  <td className="p-3 text-xs text-muted font-mono">{fmtTime(t.closed_at)}</td>
-                </tr>
-              ))}
+              {filteredTrades.map((t) => {
+                const netPnl = t.net_pnl ?? t.pnl
+                const hasCosts = t.commission !== undefined
+                const isExpanded = expandedId === t.id
+                return (
+                  <tr key={t.id} className="border-b border-surface-elevated-dark hover:bg-surface-card-dark/50">
+                    <td className="p-3">
+                      {hasCosts && (
+                        <button onClick={() => setExpandedId(isExpanded ? null : t.id)}
+                          className="text-xs text-muted hover:text-body cursor-pointer">
+                          {isExpanded ? '\u25BC' : '\u25B6'}
+                        </button>
+                      )}
+                    </td>
+                    <td className="p-3 font-mono text-xs">{t.id}</td>
+                    <td className="p-3 font-mono text-xs text-muted">
+                      {allBots.find((b) => b.id === t.bot_id)?.name ?? `#${t.bot_id}`}
+                    </td>
+                    <td className="p-3">
+                      <span className={`text-xs font-semibold ${t.side === 'buy' ? 'text-trading-up' : 'text-trading-down'}`}>
+                        {t.side.toUpperCase()}
+                      </span>
+                    </td>
+                    <td className="p-3 font-mono text-xs">{t.lot}</td>
+                    <td className="p-3 font-mono text-xs text-right">{t.entry.toFixed(2)}</td>
+                    <td className="p-3 font-mono text-xs text-right">{t.exit?.toFixed(2) ?? '—'}</td>
+                    <td className={`p-3 font-mono text-xs text-right ${t.pnl != null ? (t.pnl >= 0 ? 'text-trading-up' : 'text-trading-down') : ''}`}>
+                      {t.pnl != null ? `${t.pnl >= 0 ? '+' : ''}$${t.pnl.toFixed(2)}` : '—'}
+                    </td>
+                    {costColsVisible && (
+                      <>
+                        <td className="p-3 font-mono text-xs text-right text-trading-down">{(t.commission ?? 0) > 0 ? `-$${(t.commission ?? 0).toFixed(2)}` : '—'}</td>
+                        <td className="p-3 font-mono text-xs text-right text-trading-down">{t.slippage ? `$${Math.abs(t.slippage).toFixed(2)}` : '—'}</td>
+                        <td className="p-3 font-mono text-xs text-right text-trading-down">{(t.spread_cost ?? 0) > 0 ? `-$${(t.spread_cost ?? 0).toFixed(2)}` : '—'}</td>
+                        <td className={`p-3 font-mono text-xs text-right ${netPnl != null ? (netPnl >= 0 ? 'text-trading-up' : 'text-trading-down') : ''}`}>
+                          {netPnl != null ? `${netPnl >= 0 ? '+' : ''}$${netPnl.toFixed(2)}` : '—'}
+                        </td>
+                      </>
+                    )}
+                    <td className={`p-3 font-mono text-xs text-right ${t.r_multiple != null ? (t.r_multiple >= 0 ? 'text-trading-up' : 'text-trading-down') : ''}`}>
+                      {t.r_multiple?.toFixed(2) ?? '—'}
+                    </td>
+                    <td className="p-3 text-xs text-muted">{t.exit_reason ?? '—'}</td>
+                    <td className="p-3 text-xs text-muted font-mono">{fmtTime(t.opened_at)}</td>
+                    <td className="p-3 text-xs text-muted font-mono">{fmtTime(t.closed_at)}</td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -195,6 +246,27 @@ export default function TradeHistory() {
           <p className="text-sm text-muted">No trades match the selected filters</p>
         </div>
       )}
+
+      {/* Expanded PnL Breakdown */}
+      {expandedId != null && (() => {
+        const t = filteredTrades.find((x) => x.id === expandedId)
+        if (!t) return null
+        const net = t.net_pnl ?? t.pnl ?? 0
+        const gross = t.pnl ?? 0
+        return (
+          <div className="bg-surface-elevated-dark border border-hairline-on-dark rounded-lg p-4 text-sm space-y-1">
+            <p className="text-muted text-xs mb-2">PnL Breakdown — Trade #{t.id}</p>
+            <div className="flex justify-between"><span>Gross PnL</span><span className={`font-mono ${gross >= 0 ? 'text-trading-up' : 'text-trading-down'}`}>{gross >= 0 ? '+' : ''}${gross.toFixed(2)}</span></div>
+            <div className="flex justify-between"><span>Commission</span><span className="font-mono text-trading-down">{(t.commission ?? 0) > 0 ? `-$${(t.commission ?? 0).toFixed(2)}` : '$0.00'}</span></div>
+            <div className="flex justify-between"><span>Slippage</span><span className="font-mono text-trading-down">{t.slippage ? `-$${Math.abs(t.slippage).toFixed(2)}` : '$0.00'}</span></div>
+            <div className="flex justify-between"><span>Spread Cost</span><span className="font-mono text-trading-down">{(t.spread_cost ?? 0) > 0 ? `-$${(t.spread_cost ?? 0).toFixed(2)}` : '$0.00'}</span></div>
+            <div className="border-t border-hairline-on-dark pt-1 flex justify-between font-semibold">
+              <span>Net PnL</span>
+              <span className={`font-mono ${net >= 0 ? 'text-trading-up' : 'text-trading-down'}`}>{net >= 0 ? '+' : ''}${net.toFixed(2)}</span>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

@@ -143,15 +143,24 @@ export default function Trade() {
                 const contractSize = 100
                 const riskPercent = 0.01
                 const riskUsd = balance * riskPercent
-                const suggestedLot = Math.floor((riskUsd / (riskDist * contractSize)) / 0.01) * 0.01
+                const commissionPerLot = botState?.bot?.parameters?.commission_per_lot as number ?? 3.5
+                const denom = riskDist * contractSize + commissionPerLot
+                const suggestedLot = denom > 0 ? Math.floor((riskUsd / denom) / 0.01) * 0.01 : 0.01
                 const minLot = 0.01, maxLot = 10.0
                 const finalLot = Math.max(minLot, Math.min(maxLot, suggestedLot))
+                const totalCommission = finalLot * commissionPerLot
+                const netRisk = riskDist * finalLot * contractSize
                 return (
                   <>
                     <div className="flex justify-between"><span className="text-muted">Entry</span><span className="font-mono">${entry.toFixed(2)}</span></div>
                     <div className="flex justify-between"><span className="text-muted">Risk Distance</span><span className="font-mono">${riskDist.toFixed(2)}</span></div>
-                    <div className="flex justify-between"><span className="text-muted">Risk ({riskPercent*100}%)</span><span className="font-mono text-trading-down">${riskUsd.toFixed(2)}</span></div>
-                    <div className="flex justify-between"><span className="text-muted">Suggested Lot</span><span className="font-mono text-primary">{finalLot.toFixed(2)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted">Hard Risk ({riskPercent*100}%)</span><span className="font-mono text-trading-down">${riskUsd.toFixed(2)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted">Commission @ {commissionPerLot}/lot</span><span className="font-mono text-trading-down">-${totalCommission.toFixed(2)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted">Net Risk (SL)</span><span className="font-mono text-trading-down">${netRisk.toFixed(2)}</span></div>
+                    <div className="border-t border-hairline-on-dark/50 pt-1 flex justify-between font-semibold">
+                      <span>Suggested Lot</span>
+                      <span className="font-mono text-primary">{finalLot.toFixed(2)}</span>
+                    </div>
                   </>
                 )
               })()}

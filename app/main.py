@@ -82,6 +82,9 @@ last_received_at: int | None = None
 last_seq: int | None = None
 ws_clients: set[WebSocket] = set()
 
+# Health alert state tracking
+_was_sender_online: bool | None = None
+
 
 async def broadcast(payload: dict[str, Any]) -> None:
     if not ws_clients:
@@ -131,6 +134,12 @@ async def receive_price(payload: TickPayload) -> dict[str, Any]:
     closed_timeframes = [c["timeframe"] for c in candle_result["closed"]]
     structure_refresh = structure.refresh_timeframes(payload.symbol, closed_timeframes) if closed_timeframes else {}
     order_block_refresh = order_blocks.refresh_timeframes(payload.symbol, closed_timeframes) if closed_timeframes else {}
+
+    # Health alert: sender just came back online
+    global _was_sender_online
+    if _was_sender_online is False:
+        asyncio.create_task(alert_engine.notify_health("online", f"Sender reconnected\nLast tick: {now}"))
+    _was_sender_online = True
 
     # All bots (including Paper Trading) are evaluated by the multibot runtime
     try:
@@ -549,3 +558,8 @@ def save_alert_config(req: AlertConfigRequest) -> dict[str, Any]:
 async def test_alert() -> dict[str, Any]:
     ok = await alert_engine.test()
     return {"ok": ok, "message": "Test alert sent" if ok else "Alert sending failed"}
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    await alert_engine.close()

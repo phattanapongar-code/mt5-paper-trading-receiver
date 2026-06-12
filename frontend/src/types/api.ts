@@ -112,6 +112,12 @@ export interface Trade {
   closed_at: number | null
   exit_reason: string | null
   note: string | null
+  // Execution realism fields
+  commission?: number
+  slippage?: number
+  spread_cost?: number
+  net_pnl?: number
+  execution_detail?: string
 }
 
 export interface MarketStructureState {
@@ -202,8 +208,17 @@ export interface BotStats {
   closed_trades: number
   wins: number
   losses: number
+  win_rate: number
+  gross_pnl?: number
   net_pnl: number
+  total_commission?: number
+  total_spread_cost?: number
+  total_slippage?: number
+  profit_factor?: number | null
+  average_r?: number
   max_drawdown_usd: number
+  balance?: number
+  realized_pnl?: number
 }
 
 export interface BotState {
@@ -229,6 +244,23 @@ export interface Wallet {
   currency: string
   max_drawdown: number
   peak_equity: number
+  total_commission?: number
+  total_spread_cost?: number
+  total_slippage?: number
+}
+
+export interface BotCosts {
+  total_commission: number
+  total_spread_cost: number
+  total_slippage: number
+  total_costs: number
+  trades_with_costs: {
+    commission: number
+    slippage: number
+    spread_cost: number
+    pnl_gross: number
+    pnl_net: number
+  }[]
 }
 
 export interface BotSignalLog {

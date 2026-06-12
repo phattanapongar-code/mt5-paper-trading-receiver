@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import client from '../api/client'
 import { useToast } from '../components/Toast'
-import type { BotState, Wallet, Trade, BotSignalLog, BotStats } from '../types/api'
+import type { BotState, Wallet, Trade, BotSignalLog, BotStats, BotCosts } from '../types/api'
 
-type Tab = 'info' | 'signals' | 'edit'
+type Tab = 'info' | 'signals' | 'edit' | 'costs'
 
 export default function BotDetail() {
   const { botId } = useParams()
@@ -14,6 +14,7 @@ export default function BotDetail() {
   const [wallet, setWallet] = useState<Wallet | null>(null)
   const [trades, setTrades] = useState<Trade[]>([])
   const [signals, setSignals] = useState<BotSignalLog[]>([])
+  const [costs, setCosts] = useState<BotCosts | null>(null)
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<Tab>('info')
   const [paramsText, setParamsText] = useState('')
@@ -49,16 +50,18 @@ export default function BotDetail() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [stateRes, walletRes, tradesRes, signalsRes] = await Promise.all([
+      const [stateRes, walletRes, tradesRes, signalsRes, costsRes] = await Promise.all([
         client.get<BotState>(`/bots/${botId}/state`),
         client.get<Wallet>(`/bots/${botId}/wallet`),
         client.get<Trade[]>(`/bots/${botId}/trades`, { params: { limit: 20 } }),
         client.get<BotSignalLog[]>(`/bots/${botId}/signals?limit=50`),
+        client.get<BotCosts>(`/bots/${botId}/costs`).catch(() => null),
       ])
       setState(stateRes.data)
       setWallet(walletRes.data)
       setTrades(tradesRes.data)
       setSignals(signalsRes.data)
+      if (costsRes?.data) setCosts(costsRes.data)
     } catch {
       // ignore
     } finally {
@@ -254,6 +257,7 @@ export default function BotDetail() {
         <button onClick={() => setTab('info')} className={`pb-2 text-xs font-semibold uppercase tracking-wider cursor-pointer ${tab === 'info' ? 'text-primary border-b-2 border-primary' : 'text-muted'}`}>Info / Params</button>
         <button onClick={() => setTab('edit')} className={`pb-2 text-xs font-semibold uppercase tracking-wider cursor-pointer ${tab === 'edit' ? 'text-primary border-b-2 border-primary' : 'text-muted'}`}>Edit</button>
         <button onClick={() => setTab('signals')} className={`pb-2 text-xs font-semibold uppercase tracking-wider cursor-pointer ${tab === 'signals' ? 'text-primary border-b-2 border-primary' : 'text-muted'}`}>Signal Logs ({signals.length})</button>
+        <button onClick={() => setTab('costs')} className={`pb-2 text-xs font-semibold uppercase tracking-wider cursor-pointer ${tab === 'costs' ? 'text-primary border-b-2 border-primary' : 'text-muted'}`}>Costs</button>
       </div>
 
       {tab === 'info' && (
@@ -343,6 +347,57 @@ export default function BotDetail() {
             </table>
           ) : (
             <div className="p-6 text-center text-muted text-xs">No signal logs for this bot.</div>
+          )}
+        </div>
+      )}
+
+      {tab === 'costs' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-4">
+              <p className="text-xs text-muted mb-1">Total Commission</p>
+              <p className="font-mono text-lg font-semibold text-trading-down">${(costs?.total_commission ?? 0).toFixed(2)}</p>
+            </div>
+            <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-4">
+              <p className="text-xs text-muted mb-1">Total Spread Cost</p>
+              <p className="font-mono text-lg font-semibold text-trading-down">${(costs?.total_spread_cost ?? 0).toFixed(2)}</p>
+            </div>
+            <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-4">
+              <p className="text-xs text-muted mb-1">Total Slippage</p>
+              <p className="font-mono text-lg font-semibold text-trading-down">${(costs?.total_slippage ?? 0).toFixed(2)}</p>
+            </div>
+            <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-4">
+              <p className="text-xs text-muted mb-1">Total Costs</p>
+              <p className="font-mono text-lg font-semibold text-trading-down">${(costs?.total_costs ?? 0).toFixed(2)}</p>
+            </div>
+          </div>
+          {costs?.trades_with_costs && costs.trades_with_costs.length > 0 && (
+            <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg overflow-hidden">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-hairline-on-dark text-muted">
+                    <th className="text-left p-3">#</th>
+                    <th className="text-right p-3">Gross PnL</th>
+                    <th className="text-right p-3">Commission</th>
+                    <th className="text-right p-3">Slippage</th>
+                    <th className="text-right p-3">Spread</th>
+                    <th className="text-right p-3">Net PnL</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {costs.trades_with_costs.map((tc, i) => (
+                    <tr key={i} className="border-b border-surface-elevated-dark">
+                      <td className="p-3 font-mono">{i + 1}</td>
+                      <td className={`p-3 font-mono text-right ${tc.pnl_gross >= 0 ? 'text-trading-up' : 'text-trading-down'}`}>{tc.pnl_gross >= 0 ? '+' : ''}${tc.pnl_gross.toFixed(2)}</td>
+                      <td className="p-3 font-mono text-right text-trading-down">{(tc.commission || 0) > 0 ? `-$${tc.commission.toFixed(2)}` : '$0.00'}</td>
+                      <td className="p-3 font-mono text-right text-trading-down">{tc.slippage ? `-$${Math.abs(tc.slippage).toFixed(2)}` : '$0.00'}</td>
+                      <td className="p-3 font-mono text-right text-trading-down">{(tc.spread_cost || 0) > 0 ? `-$${tc.spread_cost.toFixed(2)}` : '$0.00'}</td>
+                      <td className={`p-3 font-mono text-right ${tc.pnl_net >= 0 ? 'text-trading-up' : 'text-trading-down'}`}>{tc.pnl_net >= 0 ? '+' : ''}${tc.pnl_net.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}

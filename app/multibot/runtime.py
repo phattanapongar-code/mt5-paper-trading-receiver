@@ -241,7 +241,11 @@ def _close_position(
         "UPDATE bot_runtime_state SET consecutive_losses=?,daily_realized_pnl=?,trading_day=?,updated_at=? WHERE bot_id=?",
         (losses, daily, day, now, position["bot_id"]),
     )
-    alert_engine.notify_trade_close(str(position.get("bot_name", "?")), side, net_pnl, reason, str(position.get("symbol", "?")), r_multiple)
+    alert_engine.notify_trade_close(
+        str(position.get("bot_name", "?")), side, pnl, reason, str(position.get("symbol", "?")),
+        r_multiple=r_multiple, commission=commission, slippage=slippage_pts,
+        spread_cost=spread_cost, net_pnl=net_pnl,
+    )
     _log(conn, position["bot_id"], "position_closed", reason, {"position_id": position["id"], "pnl": pnl, "net_pnl": net_pnl, "r_multiple": r_multiple, "commission": commission, "slippage_pips": slippage_pips})
 
 
@@ -332,7 +336,7 @@ def _evaluate_bot(conn, bot: dict[str, Any], tick: dict[str, Any], now: int) -> 
                  json_text({"entry_slippage_pips": slip_pips, "fill_price_raw": raw_fill})),
             )
             conn.execute("UPDATE bot_pending_orders SET status='filled',filled_at=?,updated_at=? WHERE id=?", (now, now, po["id"]))
-            alert_engine.notify_trade_open(bot.get("name", "?"), str(po["side"]), fill_price, float(po["stop_loss"]), float(po["take_profit"]), float(po["lot"]), str(po["symbol"]))
+            alert_engine.notify_trade_open(bot.get("name", "?"), str(po["side"]), fill_price, float(po["stop_loss"]), float(po["take_profit"]), float(po["lot"]), str(po["symbol"]), slippage_pips=slip_pips)
             _log(conn, bot_id, "position_opened", "pending_filled", {"pending_id": po["id"], "position_id": cur.lastrowid, "fill_price": fill_price, "slippage_pips": slip_pips})
         return
 
@@ -344,9 +348,13 @@ def _evaluate_bot(conn, bot: dict[str, Any], tick: dict[str, Any], now: int) -> 
     daily_limit = float(wallet["initial_balance"]) * float(params.get("daily_loss_limit_percent", 0.03))
     if state and float(state["daily_realized_pnl"] or 0.0) <= -daily_limit:
         conn.execute("UPDATE bot_runtime_state SET paused_reason='daily_loss_limit',updated_at=? WHERE bot_id=?", (now, bot_id))
+        alert_engine.notify_risk(bot.get("name", "?"), "Daily Loss Limit Hit",
+            f"Daily PnL: {float(state['daily_realized_pnl'] or 0.0):.2f} (limit: {float(params.get('daily_loss_limit_percent', 0.03)) * 100:.0f}%)\nBot PAUSED until next trading day")
         return
     if state and int(state["consecutive_losses"] or 0) >= int(params.get("max_consecutive_losses", 3)):
         conn.execute("UPDATE bot_runtime_state SET paused_reason='max_consecutive_losses',updated_at=? WHERE bot_id=?", (now, bot_id))
+        alert_engine.notify_risk(bot.get("name", "?"), "Max Consecutive Losses",
+            f"{int(state['consecutive_losses'] or 0)} losses in a row \u2192 PAUSED")
         return
 
     from app.multibot.strategies import get_strategy
