@@ -525,6 +525,17 @@ multibot.ensure_default_bot()
 
 from app.alert import alert_engine
 
+# Load saved alert config from DB into engine
+_token_row = storage.query_one("SELECT value FROM multibot_runtime_settings WHERE key='alert.bot_token'")
+_chat_row = storage.query_one("SELECT value FROM multibot_runtime_settings WHERE key='alert.chat_id'")
+_enabled_row = storage.query_one("SELECT value FROM multibot_runtime_settings WHERE key='alert.enabled'")
+if _token_row and _chat_row:
+    alert_engine.configure(
+        bot_token=_token_row["value"],
+        chat_id=_chat_row["value"],
+        enabled=(_enabled_row["value"] if _enabled_row else "0") == "1",
+    )
+
 
 @app.get("/api/alerts/config")
 def get_alert_config() -> dict[str, Any]:

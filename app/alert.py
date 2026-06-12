@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+
+import aiohttp
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +12,6 @@ class AlertEngine:
         self.bot_token: str | None = None
         self.chat_id: str | None = None
         self.enabled: bool = False
-        self._session: Any | None = None
 
     def configure(self, bot_token: str, chat_id: str, enabled: bool = True) -> None:
         self.bot_token = bot_token
@@ -21,24 +21,22 @@ class AlertEngine:
     async def send(self, message: str, retries: int = 1) -> bool:
         if not self.enabled or not self.bot_token or not self.chat_id:
             return False
-        import aiohttp
-        if not self._session:
-            self._session = aiohttp.ClientSession()
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
         for attempt in range(1 + retries):
             try:
-                async with self._session.post(url, json={
-                    "chat_id": self.chat_id,
-                    "text": message,
-                    "parse_mode": "HTML",
-                    "disable_web_page_preview": True,
-                }) as resp:
-                    ok = resp.status == 200
-                    if not ok:
-                        text = await resp.text()
-                        logger.warning("Telegram API error %s (attempt %d/%d): %s", resp.status, attempt + 1, 1 + retries, text)
-                    if ok:
-                        return True
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(url, json={
+                        "chat_id": self.chat_id,
+                        "text": message,
+                        "parse_mode": "HTML",
+                        "disable_web_page_preview": True,
+                    }) as resp:
+                        ok = resp.status == 200
+                        if not ok:
+                            text = await resp.text()
+                            logger.warning("Telegram API error %s (attempt %d/%d): %s", resp.status, attempt + 1, 1 + retries, text)
+                        if ok:
+                            return True
             except Exception as e:
                 logger.error("Telegram send failed (attempt %d/%d): %s", attempt + 1, 1 + retries, e)
             if attempt < retries:
@@ -102,9 +100,7 @@ class AlertEngine:
         return await self.send("\u2705 <b>Alert System Test</b>\nYour MT5 Paper Trading alerts are working!")
 
     async def close(self) -> None:
-        if self._session:
-            await self._session.close()
-            self._session = None
+        pass
 
 
     def _fire(self, message: str) -> None:
@@ -112,9 +108,7 @@ class AlertEngine:
             asyncio.ensure_future(self.send(message))
         except RuntimeError:
             try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.create_task(self.send(message))
+                asyncio.run(self.send(message))
             except Exception:
                 pass
 
