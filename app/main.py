@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import time
 from typing import Any
 
@@ -21,6 +22,8 @@ from app.replay import ReplayEngine
 from app.multibot import service as multibot
 from app.multibot.runtime import process_tick_sync, hub
 
+logger = logging.getLogger(__name__)
+
 app = FastAPI(title="MT5 Paper Trading Receiver", version="2.4.0")
 app.add_middleware(
     CORSMiddleware,
@@ -38,11 +41,17 @@ async def basic_auth_middleware(request: Request, call_next):
     if request.method == "OPTIONS":
         return await call_next(request)
     auth = request.headers.get("Authorization", "")
+    cors_headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "*",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Allow-Credentials": "true",
+    }
     if not auth.startswith("Basic "):
         return JSONResponse(
             status_code=401,
             content={"detail": "Not authenticated"},
-            headers={},
+            headers=cors_headers,
         )
     try:
         decoded = base64.b64decode(auth.removeprefix("Basic ")).decode()
@@ -51,13 +60,13 @@ async def basic_auth_middleware(request: Request, call_next):
         return JSONResponse(
             status_code=401,
             content={"detail": "Invalid authorization header"},
-            headers={},
+            headers=cors_headers,
         )
     if username != settings.dashboard_username or password != settings.dashboard_password:
         return JSONResponse(
             status_code=401,
             content={"detail": "Invalid credentials"},
-            headers={},
+            headers=cors_headers,
         )
     return await call_next(request)
 
@@ -324,15 +333,20 @@ def get_pending_orders(limit: int = 50, bot_id: int | None = None) -> list[dict[
 
 @app.get("/api/pending-orders/rejections")
 def get_pending_rejections(limit: int = 50, bot_id: int | None = None) -> list[dict[str, Any]]:
-    if bot_id is not None:
+    clamped = max(1, min(limit, 1000))
+    try:
+        if bot_id is not None:
+            return storage.query_all(
+                "SELECT sl.*, b.name AS bot_name FROM bot_signal_logs sl LEFT JOIN bots b ON b.id=sl.bot_id WHERE sl.bot_id=? AND sl.event_type='pending_rejected' ORDER BY sl.id DESC LIMIT ?",
+                (bot_id, clamped),
+            )
         return storage.query_all(
-            "SELECT sl.*, b.name AS bot_name FROM bot_signal_logs sl JOIN bots b ON b.id=sl.bot_id WHERE sl.bot_id=? AND sl.event_type='pending_rejected' ORDER BY sl.id DESC LIMIT ?",
-            (bot_id, max(1, min(limit, 1000))),
+            "SELECT sl.*, b.name AS bot_name FROM bot_signal_logs sl LEFT JOIN bots b ON b.id=sl.bot_id WHERE sl.event_type='pending_rejected' ORDER BY sl.id DESC LIMIT ?",
+            (clamped,),
         )
-    return storage.query_all(
-        "SELECT sl.*, b.name AS bot_name FROM bot_signal_logs sl JOIN bots b ON b.id=sl.bot_id WHERE sl.event_type='pending_rejected' ORDER BY sl.id DESC LIMIT ?",
-        (max(1, min(limit, 1000))),
-    )
+    except Exception as e:
+        logger.error("Failed to fetch pending rejections: %s", e)
+        return []
 
 
 @app.post("/api/pending-orders/evaluate")
@@ -479,6 +493,8 @@ app.include_router(multibot_router)
 from app.backtest.router import router as backtest_router
 app.include_router(backtest_router)
 
+# Ensure at least one bot exists (seeds "Paper Trading" bot if DB is empty)
+multibot.ensure_default_bot()
 
 # ── Alert Config Endpoints ──
 

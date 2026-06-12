@@ -5,6 +5,7 @@ import time
 from typing import Any
 
 from app import storage
+from app.config import settings
 from app.multibot.db import default_parameters, json_text
 
 
@@ -384,3 +385,22 @@ def delete_bot(bot_id: int) -> bool:
         conn.execute("DELETE FROM wallets WHERE bot_id=?", (bot_id,))
         conn.execute("DELETE FROM bots WHERE id=?", (bot_id,))
     return True
+
+
+def ensure_default_bot() -> dict[str, Any] | None:
+    """Ensure at least one bot exists. If none, create 'Paper Trading' bot."""
+    bots = list_bots()
+    if bots:
+        return bots[0]
+    profile = storage.query_one("SELECT id FROM profiles WHERE name='default'")
+    if profile is None:
+        from app.multibot.db import migrate
+        migrate()
+        profile = storage.query_one("SELECT id FROM profiles WHERE name='default'")
+        if profile is None:
+            return None
+    return create_bot(
+        profile_id=profile["id"],
+        name="Paper Trading",
+        initial_balance=settings.initial_balance,
+    )

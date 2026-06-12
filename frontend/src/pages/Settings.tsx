@@ -208,7 +208,7 @@ export default function Settings() {
             <button onClick={async () => {
               setAlertLoading(true)
               try {
-                await client.post('/alerts/config', alert)
+                await client.post('/alerts/config', alertCfg)
                 addToast('Alert config saved', 'success')
               } catch { addToast('Failed to save', 'error') }
               finally { setAlertLoading(false) }

@@ -19,13 +19,20 @@ const client = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
-// Inject symbol param before cache check
+// Only inject symbol param on endpoints that accept it
+const SYMBOL_ENDPOINTS = [
+  '/candles', '/indicators', '/swings', '/bos', '/order-blocks',
+  '/market-structure', '/state', '/pending-orders/state',
+]
 client.interceptors.request.use((config: AxiosRequestConfig) => {
   if (_symbol && config.method?.toUpperCase() === 'GET') {
-    const params = config.params ?? {}
-    if (!params.symbol) {
-      params.symbol = _symbol
-      config.params = params
+    const shouldInject = SYMBOL_ENDPOINTS.some(p => (config.url ?? '').startsWith(p))
+    if (shouldInject) {
+      const params = config.params ?? {}
+      if (!params.symbol) {
+        params.symbol = _symbol
+        config.params = params
+      }
     }
   }
   if (config.method?.toUpperCase() === 'GET') {
