@@ -141,7 +141,7 @@ async def receive_price(payload: TickPayload) -> dict[str, Any]:
     if not _was_sender_online:
         if now - _last_health_alert >= 60:
             _last_health_alert = now
-            asyncio.create_task(alert_engine.notify_health("online", f"Sender reconnected\nLast tick: {now}"))
+            alert_engine.notify_health("online", f"Sender reconnected\nLast tick: {now}")
     _was_sender_online = True
 
     # All bots (including Paper Trading) are evaluated by the multibot runtime
