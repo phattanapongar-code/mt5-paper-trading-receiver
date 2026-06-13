@@ -32,7 +32,7 @@ MT5 Sender → /price endpoint
           │     MULTIBOT RUNTIME            │
           │  process_tick_sync()            │
           │                                 │
-          │  Bot "Paper Trading" (id=1)     │
+          │  Bot "Paper Trading" (id varies) │
           │    ├ Wallet #1 (balance=$500)    │
           │    ├ bot_positions               │
           │    └ bot_pending_orders          │
@@ -45,11 +45,11 @@ MT5 Sender → /price endpoint
           SQLite WAL mode + RLock
 ```
 
-### Key Changes in v2.0
+### Key Changes (v2.0 → v2.5)
 
-| Before | After |
+| Before (v1.x) | After (v2.5) |
 |--------|-------|
-| `PaperEngine` (1 wallet) | Bot "Paper Trading" (id=1) via multibot |
+| `PaperEngine` (1 wallet) | Bot "Paper Trading" via multibot |
 | `PendingOrderEngine` | Multibot runtime `_evaluate_bot()` |
 | `AutoPaperExecutionEngine` | Multibot `process_tick_sync()` |
 | `multibot/db.py` (separate connection) | Uses `storage.py` shared connection |
@@ -57,6 +57,9 @@ MT5 Sender → /price endpoint
 | `execution._round_down()` / `runtime._round_lot()` | `runtime._round_lot()` (unified) |
 | `app/strategies/` | Removed (dead code) |
 | `api_key`, `strategy_enabled` config | Removed |
+| 1 strategy (trend_ob) | 5 strategies (trend_ob, bb_breakout, ma_cross, macd_cross, rsi_meanrev) |
+| No Telegram alerts | `AlertEngine` with Telegram notifications |
+| No backtest | `app/backtest/` engine + optimizer |
 
 ### Files
 
@@ -70,6 +73,7 @@ MT5 Sender → /price endpoint
 - `app/indicators.py` — Indicators (SMA, ATR, trend detection)
 - `app/stats.py` — PnL, equity curve, win rate (backed by bot_positions)
 - `app/replay.py` — Historical replay preview
+- `app/alert.py` — Telegram AlertEngine (dedicated event loop thread)
 
 **MultiBot (execution layer):**
 - `app/multibot/runtime.py` — Bot evaluation engine (`_evaluate_bot`, `process_tick_sync`)
@@ -77,19 +81,24 @@ MT5 Sender → /price endpoint
 - `app/multibot/db.py` — Migration + schema for multibot tables
 - `app/multibot/router.py` — MultiBot API endpoints
 - `app/multibot/models.py` — Pydantic schemas
-- `app/multibot/dashboard.py` — Embedded HTML dashboard
+- `app/multibot/strategies/` — Strategy implementations (trend_ob, bb_breakout, ma_cross, macd_cross, rsi_meanrev)
+
+**Backtest (v2.5.0):**
+- `app/backtest/engine.py` — Historical simulation engine
+- `app/backtest/report.py` — Performance report generator
+- `app/backtest/optimizer.py` — Parameter grid search
+- `app/backtest/models.py` — Pydantic request schemas
+- `app/backtest/router.py` — Backtest API endpoints
 
 **Frontend**: React + TypeScript + Vite
-- `frontend/` — React app with dashboard pages
-- `dashboard/index.html` — Simple embedded dashboard (lightweight)
+- `frontend/` — React SPA (replaces old embedded dashboard)
 
 ## Key Concepts
 
 ### Paper-Only System
 - **Never** sends orders to real MT5
-- Auto execution is OFF by default
-- Enable with: `curl -X POST http://localhost:5050/api/strategy/enable`
-- Legacy `/api/strategy/enable` now enables the "Paper Trading" bot (id=1)
+- Auto execution is OFF by default (all bots start disabled)
+- Enable a bot with: `curl -X POST http://localhost:5050/api/bots/{bot_id}/enable`
 
 ### Tick Pipeline
 ```
@@ -143,6 +152,16 @@ WebSocket broadcast
 | `MAX_LOT` | `10.0` | Maximum lot size |
 | `DASHBOARD_USERNAME` | `admin` | Dashboard basic auth username |
 | `DASHBOARD_PASSWORD` | `admin` | Dashboard basic auth password |
+| `COMMISSION_PER_LOT` | `3.5` | Commission per lot (fixed) |
+| `COMMISSION_TYPE` | `fixed` | Commission type (`fixed` or `percentage`) |
+| `COMMISSION_PCT` | `0.0001` | Commission % (if type=`percentage`) |
+| `SLIPPAGE_SIGMA` | `0.15` | Slippage Gaussian sigma (pips) |
+| `SLIPPAGE_MAX_PIPS` | `0.5` | Max slippage (pips) |
+| `LATENCY_MS_MIN` | `10` | Min latency simulation (ms) |
+| `LATENCY_MS_MAX` | `50` | Max latency simulation (ms) |
+| `GAP_CHECK_ENABLED` | `true` | Enable gap detection |
+| `GAP_MAX_PERCENT` | `0.5` | Max gap adjustment (%) |
+| `GAP_THRESHOLD_SECONDS` | `3600` | Gap threshold (seconds) |
 
 ## API Endpoints
 
@@ -150,30 +169,64 @@ WebSocket broadcast
 |----------|--------|---------|
 | `/health` | GET | System health + sender status |
 | `/price` | POST | Ingest tick from MT5 sender |
-| `/api/state` | GET | Full system state (tick, positions, indicators, orders) |
-| `/api/trades` | GET | Trade history (Paper Trading bot) |
+| `/symbols` | GET | List available symbols |
+| `/api/ticks` | GET | Recent tick history |
 | `/api/candles/{timeframe}` | GET | Candle data |
-| `/api/swings/{timeframe}` | GET | swing points |
+| `/api/indicators/{timeframe}` | GET | Computed indicators (SMA, ATR, trend) |
+| `/api/swings/{timeframe}` | GET | Swing points |
 | `/api/bos/{timeframe}` | GET | Break of structure events |
-| `/api/order-blocks/{timeframe}` | GET | Order blocks |
-| `/api/pending-orders/state` | GET | Pending order status |
-| `/api/strategy/status` | GET | Strategy enabled status |
-| `/api/strategy/enable` | POST | Enable auto execution |
-| `/api/strategy/disable` | POST | Disable auto execution |
-| `/api/paper/open` | POST | Open paper position (manual) |
-| `/api/paper/close` | POST | Close paper position (manual) |
-| `/api/paper/reset` | POST | Reset Paper Trading wallet |
-| `/api/stats` | GET | Performance statistics |
+| `/api/market-structure/{timeframe}` | GET | Market structure state |
+| `/api/market-structure/rebuild` | POST | Rebuild market structure |
+| `/api/order-blocks/active/{timeframe}` | GET | Active order blocks |
+| `/api/order-blocks/state/{timeframe}` | GET | Order block state summary |
+| `/api/order-blocks/rebuild` | POST | Rebuild order blocks |
+| `/api/pending-orders` | GET | Pending orders list |
+| `/api/pending-orders/rejections` | GET | Rejected pending orders |
+| `/api/pending-orders/evaluate` | POST | Force evaluate pending orders |
+| `/api/pending-orders/{id}/cancel` | POST | Cancel a pending order |
+| `/api/trades` | GET | Trade history (filterable by bot_id/side/symbol) |
+| `/api/signal-logs` | GET | Bot signal logs |
+| `/api/bots/{id}/open` | POST | Open manual position |
+| `/api/bots/{id}/close` | POST | Close manual position |
+| `/api/bots/{id}/stats` | GET | Bot performance stats |
+| `/api/bots/{id}/stats/equity` | GET | Bot equity curve |
+| `/api/bots/{id}/stats/pnl-by-day` | GET | Bot daily PnL breakdown |
 | `/api/replay/run` | POST | Run replay simulation |
 | `/api/replay/latest` | GET | Latest replay result |
-| `/dashboard` | GET | Simple dashboard HTML |
+| `/api/history/import` | POST | Import historical data |
+| `/api/history/status` | GET | Import status |
 | `/ws/ticks` | WS | Real-time tick streaming |
 | `/api/profiles` | GET/POST | MultiBot profile management |
+| `/api/profiles/{id}/enable` | POST | Enable profile |
+| `/api/profiles/{id}/disable` | POST | Disable profile |
+| `/api/profiles/{id}` | DELETE | Delete profile |
 | `/api/bots` | GET/POST | MultiBot bot management |
+| `/api/bots/{id}` | GET/PUT/DELETE | Bot CRUD |
 | `/api/bots/{id}/state` | GET | Bot runtime state |
 | `/api/bots/{id}/trades` | GET | Bot trade history |
+| `/api/bots/{id}/signals` | GET | Bot signal logs |
+| `/api/bots/{id}/clone` | POST | Clone bot |
+| `/api/bots/{id}/enable` | POST | Enable bot |
+| `/api/bots/{id}/disable` | POST | Disable bot |
+| `/api/bots/{id}/parameters` | PUT | Update bot parameters |
+| `/api/bots/{id}/rename` | PUT | Rename bot |
 | `/api/bots/{id}/wallet` | GET | Bot wallet info |
+| `/api/bots/{id}/wallet/reset` | POST | Reset bot wallet |
+| `/api/bots/{id}/costs` | GET | Bot execution costs breakdown |
+| `/api/strategies` | GET | List available strategies |
+| `/api/compare` | GET | Compare all bots |
+| `/api/multibot/migration/status` | GET | Migration status |
+| `/api/multibot/runtime/status` | GET | Runtime status |
 | `/ws/multibot` | WS | MultiBot real-time state |
+| `/api/backtest/run` | POST | Run backtest |
+| `/api/backtest/optimize` | POST | Run parameter optimization |
+| `/api/backtest/history` | GET | Backtest history |
+| `/api/backtest/runs/{id}` | GET | Backtest run details |
+| `/api/backtest/optimize/history` | GET | Optimization history |
+| `/api/backtest/optimize/runs/{id}` | GET | Optimization run details |
+| `/api/backtest/clone-bot/{run_id}` | POST | Clone bot from backtest |
+| `/api/alerts/config` | GET/POST | Telegram alert configuration |
+| `/api/alerts/test` | POST | Test Telegram alert |
 
 ## Testing
 
@@ -197,12 +250,12 @@ python -m pytest tests/test_pending_orders.py
 
 ### Enable Auto Paper Execution
 ```bash
-curl -X POST http://localhost:5050/api/strategy/enable
+curl -X POST http://localhost:5050/api/bots/{bot_id}/enable
 ```
 
 ### Disable Auto Paper Execution
 ```bash
-curl -X POST http://localhost:5050/api/strategy/disable
+curl -X POST http://localhost:5050/api/bots/{bot_id}/disable
 ```
 
 ### Create a New Bot
@@ -245,17 +298,33 @@ curl -X POST http://localhost:5050/price -H "Content-Type: application/json" -d 
 - Both connect to the same REST/WS endpoints
 - Frontend requires `/api/` endpoints to have Basic Auth (`admin:admin` by default)
 
+## Testing
+
+```bash
+# Run all tests
+python -m pytest
+
+# Run specific test file  
+python -m pytest tests/test_pending_orders.py
+```
+
 ## Troubleshooting
 
 | Symptom | Likely Cause | Fix |
 |---------|--------------|-----|
 | `sender_online: false` | MT5 sender not sending ticks | Check MT5 sender script |
 | `websocket_clients: 0` | No dashboard connection | Refresh dashboard page |
-| `strategy enabled but no fills` | OB not touched or bot not triggered | Check `api/bots/1/state` |
+| `strategy enabled but no fills` | OB not touched or bot not triggered | Check `api/bots/{id}/state` |
 | `sqlite busy` | Concurrent write attempts | Back up DB, restart receiver |
 
 ## Version History
 
+- **v2.5.0**: Backtest engine + optimizer + report generator
+  - 3 new strategies: BB breakout, MA cross, MACD cross, RSI mean reversion
+  - Telegram AlertEngine with trade/risk/health notifications
+  - Trailing stop (per-bot configurable)
+  - Prop firm grade execution realism (Gaussian slippage, commission, spread cost, latency, gap detection)
+  - Execution detail JSON tracking
 - **v2.4.0**: Polish release
   - Mobile responsive sidebar (hamburger overlay on small screens)
   - Request dedup + cache (2s TTL on GET requests, auto-return cached data)

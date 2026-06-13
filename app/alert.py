@@ -3,11 +3,27 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 import time
 
 import aiohttp
 
 logger = logging.getLogger(__name__)
+
+_alert_loop: asyncio.AbstractEventLoop | None = None
+_alert_loop_lock = threading.Lock()
+
+
+def _get_alert_loop() -> asyncio.AbstractEventLoop:
+    global _alert_loop
+    if _alert_loop is None or _alert_loop.is_closed():
+        with _alert_loop_lock:
+            if _alert_loop is None or _alert_loop.is_closed():
+                _alert_loop = asyncio.new_event_loop()
+                t = threading.Thread(target=_alert_loop.run_forever, daemon=True)
+                t.start()
+    return _alert_loop
+
 
 class AlertEngine:
     def __init__(self) -> None:
@@ -122,13 +138,8 @@ class AlertEngine:
         if now - self._last_sent < 1.0:
             return
         self._last_sent = now
-        try:
-            asyncio.ensure_future(self.send(message))
-        except RuntimeError:
-            try:
-                asyncio.run(self.send(message))
-            except Exception:
-                pass
+        loop = _get_alert_loop()
+        asyncio.run_coroutine_threadsafe(self.send(message), loop)
 
 
 alert_engine = AlertEngine()

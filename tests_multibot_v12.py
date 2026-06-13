@@ -35,13 +35,14 @@ def main() -> None:
         db = os.path.join(td, 'test.sqlite3')
         setup_db(db)
         os.environ['DB_PATH'] = db
+        from app import storage
         from app.multibot import db as mdb
         from app.multibot import service
         from app.multibot.runtime import process_tick_sync
         result = mdb.migrate()
-        assert result['schema_version'] == '1.2'
+        assert result['schema_version'] == '2.5', f"expected 2.5 got {result['schema_version']}"
         bots = service.list_bots()
-        assert len(bots) == 1 and bots[0]['name'] == 'trend-ob-baseline'
+        assert len(bots) == 1 and bots[0]['name'] == 'Paper Trading', f"expected Paper Trading got {bots[0]['name']}"
         bot_id = bots[0]['id']
         service.set_bot_enabled(bot_id, True)
         # zone touch but bid below midpoint -> create pending
@@ -61,7 +62,8 @@ def main() -> None:
         clone = service.clone_bot(bot_id, 'trend-ob-strict')
         assert clone['id'] != bot_id
         assert len(service.list_bots()) == 2
-        print('v1.2 smoke test passed')
+        storage._conn.close()
+        print('v2.5 smoke test passed')
 
 if __name__ == '__main__':
     main()
