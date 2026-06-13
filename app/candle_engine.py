@@ -281,27 +281,24 @@ class CandleEngine:
              candle.high, candle.low, candle.close, candle.tick_count, candle.is_closed, candle.updated_at),
         )
 
-    def get_candles(self, symbol: str, timeframe: str, limit: int = 400, closed_only: bool = False) -> list[dict[str, Any]]:
+    def get_candles(self, symbol: str, timeframe: str, limit: int = 400, closed_only: bool = False,
+                    start_time: int | None = None, end_time: int | None = None) -> list[dict[str, Any]]:
         if timeframe not in TIMEFRAMES:
             raise ValueError(f"Unsupported timeframe: {timeframe}")
+        where = "symbol = ? AND timeframe = ?"
+        params: list[Any] = [symbol, timeframe]
         if closed_only:
-            rows = storage.query_all(
-                """
-                SELECT * FROM candles
-                WHERE symbol = ? AND timeframe = ? AND is_closed = 1
-                ORDER BY open_time DESC LIMIT ?
-                """,
-                (symbol, timeframe, limit),
-            )
-        else:
-            rows = storage.query_all(
-                """
-                SELECT * FROM candles
-                WHERE symbol = ? AND timeframe = ?
-                ORDER BY open_time DESC LIMIT ?
-                """,
-                (symbol, timeframe, limit),
-            )
+            where += " AND is_closed = 1"
+        if start_time is not None:
+            where += " AND open_time >= ?"
+            params.append(start_time)
+        if end_time is not None:
+            where += " AND open_time <= ?"
+            params.append(end_time)
+        rows = storage.query_all(
+            f"SELECT * FROM candles WHERE {where} ORDER BY open_time DESC LIMIT ?",
+            (*params, limit),
+        )
         return list(reversed(rows))
 
     def get_indicators(self, symbol: str, timeframe: str) -> dict[str, Any]:

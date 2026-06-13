@@ -14,6 +14,17 @@ interface CandlePendingOrder {
 const TIMEFRAMES = ['M1', 'M5', 'M15', 'H1'] as const
 type TF = (typeof TIMEFRAMES)[number]
 
+const DATE_RANGES = [
+  { label: '1D' as const, seconds: 86400 },
+  { label: '1W' as const, seconds: 604800 },
+  { label: '1M' as const, seconds: 2592000 },
+  { label: '3M' as const, seconds: 7776000 },
+  { label: '6M' as const, seconds: 15552000 },
+  { label: '1Y' as const, seconds: 31536000 },
+  { label: 'ALL' as const, seconds: 0 },
+]
+type DR = (typeof DATE_RANGES)[number]['label']
+
 export default function Charts() {
   const { allBots } = useBotContext()
   const chartRef = useRef<HTMLDivElement>(null)
@@ -26,6 +37,7 @@ export default function Charts() {
   const priceLinesRef = useRef<ReturnType<ISeriesApi<'Candlestick'>['createPriceLine']>[]>([])
 
   const [timeframe, setTimeframe] = useState<TF>('M15')
+  const [dateRange, setDateRange] = useState<DR>('1W')
   const [pendingBotId, setPendingBotId] = useState<number | null>(null)
   const [candles, setCandles] = useState<Candle[]>([])
   const [indicators, setIndicators] = useState<Indicators | null>(null)
@@ -44,13 +56,21 @@ export default function Charts() {
     renderDrawings, liveSvg,
   } = useDrawingTools(chartApi, chartRef as React.RefObject<HTMLDivElement | null>)
 
-  const fetchData = useCallback(async (tf: TF) => {
+  const fetchData = useCallback(async (tf: TF, dr?: DR) => {
     setRefreshing(true)
     try {
+      const drValue = dr ?? dateRangeRef.current
+      const selected = DATE_RANGES.find(r => r.label === drValue)!
+      const now = Math.floor(Date.now() / 1000)
+      const candleParams: Record<string, unknown> = { limit: 50000, closed_only: false }
+      if (selected.seconds > 0) {
+        candleParams.start_time = now - selected.seconds
+      }
+
       const pendingParams: Record<string, unknown> = { limit: 1 }
       if (pendingBotId) pendingParams.bot_id = pendingBotId
       const [candleRes, indRes, obRes, structRes, pendingRes] = await Promise.all([
-        client.get<Candle[]>(`/candles/${tf}`, { params: { limit: 200, closed_only: false } }),
+        client.get<Candle[]>(`/candles/${tf}`, { params: candleParams }),
         client.get<Indicators>(`/indicators/${tf}`),
         client.get<OrderBlock[]>(`/order-blocks/active/${tf}`, { params: { limit: 10 } }),
         client.get<MarketStructureState>(`/market-structure/${tf}`),
@@ -75,6 +95,9 @@ export default function Charts() {
     }
   }, [pendingBotId])
 
+  const dateRangeRef = useRef(dateRange)
+  dateRangeRef.current = dateRange
+
   const wsHandler = useCallback((msg: any) => {
     if (msg?.tick?.mid && candleSeriesRef.current && lastCandleRef.current) {
       const lc = lastCandleRef.current
@@ -87,7 +110,7 @@ export default function Charts() {
     }
     if (debounceWsRef.current) clearTimeout(debounceWsRef.current)
     debounceWsRef.current = setTimeout(() => {
-      fetchData(timeframeRef.current)
+      fetchData(timeframeRef.current, dateRangeRef.current)
     }, 2000)
   }, [fetchData])
 
@@ -96,14 +119,14 @@ export default function Charts() {
   useWebSocket('/ws/ticks', wsHandler)
 
   useEffect(() => {
-    fetchData(timeframe)
-    const interval = setInterval(() => fetchData(timeframe), 5000)
+    fetchData(timeframe, dateRange)
+    const interval = setInterval(() => fetchData(timeframe, dateRange), 5000)
     return () => clearInterval(interval)
-  }, [timeframe, fetchData])
+  }, [timeframe, dateRange, fetchData])
 
   useEffect(() => {
     if (chartApi) chartApi.timeScale().fitContent()
-  }, [timeframe, chartApi])
+  }, [timeframe, dateRange, chartApi])
 
   useEffect(() => {
     if (!chartRef.current) return
@@ -315,6 +338,22 @@ export default function Charts() {
               </button>
             ))}
             {refreshing && <LoadingSpinner size={14} />}
+          </div>
+          <div className="h-5 w-px bg-hairline-on-dark mx-1" />
+          <div className="flex gap-1">
+            {DATE_RANGES.map((dr) => (
+              <button
+                key={dr.label}
+                onClick={() => setDateRange(dr.label)}
+                className={`px-2 py-1.5 text-xs font-mono rounded-md transition-colors cursor-pointer ${
+                  dateRange === dr.label
+                    ? 'bg-primary/10 text-primary border border-primary/50'
+                    : 'bg-surface-card-dark text-muted border border-hairline-on-dark hover:border-surface-elevated-dark'
+                }`}
+              >
+                {dr.label}
+              </button>
+            ))}
           </div>
           <button
             onClick={() => setShowDrawTools(!showDrawTools)}

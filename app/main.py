@@ -258,12 +258,16 @@ def ticks(limit: int = 100) -> list[dict[str, Any]]:
 
 
 @app.get("/api/candles/{timeframe}")
-def get_candles(timeframe: str, symbol: str = "", limit: int = 100, closed_only: bool = False) -> list[dict[str, Any]]:
+def get_candles(timeframe: str, symbol: str = "", limit: int = 100, closed_only: bool = False,
+                start_time: int | None = None, end_time: int | None = None) -> list[dict[str, Any]]:
     timeframe = timeframe.upper()
     sym = symbol.upper() or settings.symbol
     if timeframe not in TIMEFRAMES:
         raise HTTPException(status_code=400, detail=f"Unsupported timeframe. Use one of {list(TIMEFRAMES)}")
-    return candles.get_candles(sym, timeframe, max(1, min(limit, 1000)), closed_only)
+    # Allow much larger limit when date range is specified (for historical view)
+    max_limit = 200000 if (start_time is not None or end_time is not None) else 1000
+    clamped = max(1, min(limit, max_limit))
+    return candles.get_candles(sym, timeframe, clamped, closed_only, start_time, end_time)
 
 
 @app.get("/api/indicators/{timeframe}")

@@ -45,7 +45,7 @@ class HistoryImportRequest(BaseModel):
     timeframe: Union[Literal["M1", "M5", "M15", "H1"]] = "M1"
     source: str = Field(default="mt5_windows", max_length=100)
     offset_seconds: int = 0
-    candles: list[HistoryCandle] = Field(min_length=1, max_length=5000)
+    candles: list[HistoryCandle] = Field(min_length=1, max_length=50000)
 
 
 class OpenOrderRequest(BaseModel):
