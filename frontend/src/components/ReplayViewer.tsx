@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import client from '../api/client'
+import { useBotContext } from '../context/BotContext'
 import { FiPlay, FiCheck, FiX, FiAlertTriangle } from 'react-icons/fi'
 import type { ReplayRun } from '../types/api'
 
@@ -32,25 +33,26 @@ interface ReplayPayload {
 }
 
 export default function ReplayViewer({ onRun }: Props) {
+  const { symbol } = useBotContext()
   const [latest, setLatest] = useState<ReplayRun | null>(null)
   const [running, setRunning] = useState(false)
 
   const loadLatest = useCallback(async () => {
     try {
-      const res = await client.get<ReplayRun>('/replay/latest')
+      const res = await client.get<ReplayRun>('/replay/latest', { params: { symbol: symbol } })
       setLatest(res.data)
     } catch {
       // ignore
     }
-  }, [])
+  }, [symbol])
 
   useEffect(() => { loadLatest() }, [loadLatest])
 
   const run = useCallback(async () => {
     setRunning(true)
     try {
-      await client.post('/replay/run')
-      const latestRes = await client.get<ReplayRun>('/replay/latest')
+      await client.post('/replay/run', { params: { symbol: symbol } })
+      const latestRes = await client.get<ReplayRun>('/replay/latest', { params: { symbol: symbol } })
       setLatest(latestRes.data)
       onRun?.()
     } catch {
@@ -58,7 +60,7 @@ export default function ReplayViewer({ onRun }: Props) {
     } finally {
       setRunning(false)
     }
-  }, [onRun])
+  }, [symbol, onRun])
 
   let payload: ReplayPayload | null = null
   if (latest?.payload) {

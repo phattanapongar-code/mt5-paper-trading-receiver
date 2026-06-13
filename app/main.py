@@ -132,26 +132,22 @@ async def receive_price(payload: TickPayload) -> dict[str, Any]:
         (payload.symbol, payload.type, payload.bid, payload.ask, mid, spread, payload.seq, now, now, payload.timestamp),
     )
 
-    candle_result = candles.update_tick(payload.symbol, payload.bid, payload.ask, now)
-    closed_timeframes = [c["timeframe"] for c in candle_result["closed"]]
-    structure_refresh = structure.refresh_timeframes(payload.symbol, closed_timeframes) if closed_timeframes else {}
-    order_block_refresh = order_blocks.refresh_timeframes(payload.symbol, closed_timeframes) if closed_timeframes else {}
+    def tick_pipeline():
+        candle_res = candles.update_tick(payload.symbol, payload.bid, payload.ask, now)
+        closed_tfs = [c["timeframe"] for c in candle_res["closed"]]
+        struct_res = structure.refresh_timeframes(payload.symbol, closed_tfs) if closed_tfs else {}
+        ob_res = order_blocks.refresh_timeframes(payload.symbol, closed_tfs) if closed_tfs else {}
+        bot_result = process_tick_sync(latest_tick)
+        return candle_res, struct_res, ob_res, bot_result
 
-    # Health alert: sender just came back online (max once per 60s)
-    global _was_sender_online, _last_health_alert
-    if not _was_sender_online:
-        if now - _last_health_alert >= 60:
-            _last_health_alert = now
-            alert_engine.notify_health("online", f"Sender reconnected\nLast tick: {now}")
-    _was_sender_online = True
-
-    # All bots (including Paper Trading) are evaluated by the multibot runtime
     try:
-        multibot_result = process_tick_sync(latest_tick)
+        candle_result, structure_refresh, order_block_refresh, multibot_result = await asyncio.to_thread(tick_pipeline)
     except Exception as exc:
         multibot_result = {"ok": False, "error": str(exc), "tick": latest_tick}
-        import traceback
-        traceback.print_exc()
+        candle_result = {"closed": []}
+        structure_refresh = {}
+        order_block_refresh = {}
+        logger.error("tick_pipeline failed: %s", exc)
     hub.set_result(multibot_result)
 
     event = {

@@ -27,7 +27,7 @@ const DATE_RANGES = [
 type DR = (typeof DATE_RANGES)[number]['label']
 
 export default function Charts() {
-  const { allBots } = useBotContext()
+  const { allBots, symbol } = useBotContext()
   const chartRef = useRef<HTMLDivElement>(null)
   const [chartApi, setChartApi] = useState<IChartApi | null>(null)
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
@@ -64,7 +64,7 @@ export default function Charts() {
       const drValue = dr ?? dateRangeRef.current
       const selected = DATE_RANGES.find(r => r.label === drValue)!
       const now = Math.floor(Date.now() / 1000)
-      const candleParams: Record<string, unknown> = { limit: 50000, closed_only: false }
+      const candleParams: Record<string, unknown> = { limit: 50000, closed_only: false, symbol: symbol }
       if (selected.seconds > 0) {
         candleParams.start_time = now - selected.seconds
       }
@@ -73,9 +73,9 @@ export default function Charts() {
       if (pendingBotId) pendingParams.bot_id = pendingBotId
       const [candleRes, indRes, obRes, structRes, pendingRes] = await Promise.all([
         client.get<Candle[]>(`/candles/${tf}`, { params: candleParams }),
-        client.get<Indicators>(`/indicators/${tf}`),
-        client.get<OrderBlock[]>(`/order-blocks/active/${tf}`, { params: { limit: 10 } }),
-        client.get<MarketStructureState>(`/market-structure/${tf}`),
+        client.get<Indicators>(`/indicators/${tf}`, { params: { symbol: symbol } }),
+        client.get<OrderBlock[]>(`/order-blocks/active/${tf}`, { params: { limit: 10, symbol: symbol } }),
+        client.get<MarketStructureState>(`/market-structure/${tf}`, { params: { symbol: symbol } }),
         client.get<CandlePendingOrder[]>('/pending-orders', { params: pendingParams }),
       ])
       setCandles(candleRes.data)
@@ -95,7 +95,7 @@ export default function Charts() {
     } finally {
       setRefreshing(false)
     }
-  }, [pendingBotId])
+  }, [pendingBotId, symbol])
 
   const dateRangeRef = useRef(dateRange)
   dateRangeRef.current = dateRange
@@ -190,7 +190,7 @@ export default function Charts() {
       title: 'MA300',
     })
 
-    markersPluginRef.current = createUpDownMarkers(candlesSeries)
+
 
     setChartApi(chart)
     candleSeriesRef.current = candlesSeries

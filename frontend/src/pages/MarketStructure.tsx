@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import client from '../api/client'
 import { useToast } from '../components/Toast'
 import LoadingSpinner from '../components/LoadingSpinner'
+import { useBotContext } from '../context/BotContext'
 import { FiStar } from 'react-icons/fi'
 import type { MarketStructureState, OrderBlock, OrderBlockState, BosEvent } from '../types/api'
 
@@ -10,6 +11,7 @@ type TF = (typeof TIMEFRAMES)[number]
 
 export default function MarketStructure() {
   const { addToast } = useToast()
+  const { symbol } = useBotContext()
   const [timeframe, setTimeframe] = useState<TF>('M15')
   const [structure, setStructure] = useState<MarketStructureState | null>(null)
   const [obState, setObState] = useState<OrderBlockState | null>(null)
@@ -22,10 +24,10 @@ export default function MarketStructure() {
     setRefreshing(true)
     try {
       const [structRes, obRes, bosRes, obActiveRes] = await Promise.all([
-        client.get<MarketStructureState>(`/market-structure/${tf}`),
-        client.get<OrderBlockState>(`/order-blocks/state/${tf}`),
-        client.get<BosEvent[]>(`/bos/${tf}`, { params: { limit: 20 } }),
-        client.get<OrderBlock[]>(`/order-blocks/active/${tf}`, { params: { limit: 20 } }),
+        client.get<MarketStructureState>(`/market-structure/${tf}`, { params: { symbol: symbol } }),
+        client.get<OrderBlockState>(`/order-blocks/state/${tf}`, { params: { symbol: symbol } }),
+        client.get<BosEvent[]>(`/bos/${tf}`, { params: { limit: 20, symbol: symbol } }),
+        client.get<OrderBlock[]>(`/order-blocks/active/${tf}`, { params: { limit: 20, symbol: symbol } }),
       ])
       setStructure(structRes.data)
       setObState(obRes.data)
@@ -37,7 +39,7 @@ export default function MarketStructure() {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [addToast])
+  }, [addToast, symbol])
 
   const rebuild = useCallback(async () => {
     try {

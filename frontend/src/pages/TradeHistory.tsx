@@ -14,7 +14,7 @@ const fmtTime = (ts: number | null | undefined) => {
 }
 
 export default function TradeHistory() {
-  const { selectedBot, allBots } = useBotContext()
+  const { selectedBot, allBots, symbol } = useBotContext()
   const { addToast } = useToast()
   const [trades, setTrades] = useState<Trade[]>([])
   const [loading, setLoading] = useState(true)
@@ -27,6 +27,7 @@ export default function TradeHistory() {
     try {
       const params: Record<string, unknown> = { limit: 500 }
       if (selectedBot) params.bot_id = selectedBot.id
+      if (symbol) params.symbol = symbol
 
       const tradesRes = await client.get<Trade[]>('/trades', { params })
       if (!cancelledRef.current) setTrades(tradesRes.data)
@@ -35,7 +36,7 @@ export default function TradeHistory() {
     } finally {
       if (!cancelledRef.current) setLoading(false)
     }
-  }, [selectedBot, addToast])
+  }, [selectedBot, symbol, addToast])
 
   useEffect(() => {
     cancelledRef.current = false
