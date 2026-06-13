@@ -1,14 +1,53 @@
-import { useState, useCallback, useEffect, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { createChart, LineSeries, type IChartApi, type ISeriesApi } from 'lightweight-charts'
 import client from '../api/client'
 import { useToast } from '../components/Toast'
 import type { Bot, BacktestResult, BacktestHistory } from '../types/api'
 
 const TIMEFRAMES = ['M1', 'M5', 'M15', 'H1'] as const
 
+function EquityCurve({ data, height = 200 }: { data: { time: number; equity: number }[]; height?: number }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const chartRef = useRef<IChartApi | null>(null)
+  const seriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+
+  useEffect(() => {
+    if (!ref.current) return
+    const chart = createChart(ref.current, {
+      width: ref.current.clientWidth,
+      height,
+      layout: { background: { color: '#1e2329' }, textColor: '#eaecef' },
+      grid: { vertLines: { color: '#2b3139' }, horzLines: { color: '#2b3139' } },
+      crosshair: { vertLine: { color: '#555' }, horzLine: { color: '#555' } },
+      timeScale: { borderColor: '#2b3139', visible: false },
+      rightPriceScale: { borderColor: '#2b3139' },
+    })
+    const series = chart.addSeries(LineSeries, {
+      color: '#FCD535', lineWidth: 2,
+      priceFormat: { type: 'custom', formatter: (v: number) => '$' + v.toFixed(2) },
+    })
+    chartRef.current = chart
+    seriesRef.current = series
+    const resize = () => { if (ref.current) chart.resize(ref.current.clientWidth, height) }
+    window.addEventListener('resize', resize)
+    return () => { window.removeEventListener('resize', resize); chart.remove() }
+  }, [height])
+
+  useEffect(() => {
+    if (seriesRef.current && data.length) {
+      seriesRef.current.setData(data.map(d => ({ time: d.time as any, value: d.equity })))
+      chartRef.current?.timeScale().fitContent()
+    }
+  }, [data])
+
+  return <div ref={ref} className="w-full rounded border border-hairline-on-dark" />
+}
+
 export default function Backtest() {
   const { addToast } = useToast()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [bots, setBots] = useState<Bot[]>([])
   const [strategies, setStrategies] = useState<{ id: string; name: string }[]>([])
   const [loading, setLoading] = useState(true)
@@ -40,6 +79,13 @@ export default function Backtest() {
   }, [])
 
   useEffect(() => { fetchMeta() }, [fetchMeta])
+
+  // Load result from URL ?run=ID
+  useEffect(() => {
+    const runId = searchParams.get('run')
+    if (!runId) return
+    client.get<BacktestResult>(`/backtest/runs/${runId}`).then(res => setResult(res.data)).catch(() => {})
+  }, [searchParams])
 
   const selectedBot = useMemo(() => bots.find(b => b.id === botId), [bots, botId])
   useEffect(() => {
@@ -183,26 +229,36 @@ export default function Backtest() {
             <MetricCard label="Return" value={`${result.return_pct.toFixed(1)}%`} color={result.return_pct >= 0 ? '#0ecb81' : '#f6465d'} />
           </div>
 
+          {result.equity_curve?.length > 0 && (
+            <div>
+              <p className="text-xs text-muted mb-2">Equity Curve</p>
+              <EquityCurve data={result.equity_curve} height={180} />
+            </div>
+          )}
+
           {result.trades.length > 0 && (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead><tr className="border-b border-hairline-on-dark text-muted">
-                  <th className="text-left p-2">Side</th><th className="text-right p-2">Entry</th><th className="text-right p-2">Exit</th>
-                  <th className="text-right p-2">PnL</th><th className="text-right p-2">R</th><th className="text-left p-2">Reason</th>
-                </tr></thead>
-                <tbody>
-                  {result.trades.slice(-50).map((t, i) => (
-                    <tr key={i} className="border-b border-surface-elevated-dark">
-                      <td className={`p-2 font-mono ${t.side === 'buy' ? 'text-trading-up' : 'text-trading-down'}`}>{t.side.toUpperCase()}</td>
-                      <td className="p-2 font-mono text-right">{t.entry.toFixed(2)}</td>
-                      <td className="p-2 font-mono text-right">{t.exit?.toFixed(2) ?? '—'}</td>
-                      <td className={`p-2 font-mono text-right ${(t.pnl ?? 0) >= 0 ? 'text-trading-up' : 'text-trading-down'}`}>{t.pnl != null ? `${t.pnl >= 0 ? '+' : ''}$${t.pnl.toFixed(2)}` : '—'}</td>
-                      <td className={`p-2 font-mono text-right ${(t.r_multiple ?? 0) >= 0 ? 'text-trading-up' : 'text-trading-down'}`}>{t.r_multiple?.toFixed(2) ?? '—'}</td>
-                      <td className="p-2 text-muted">{t.exit_reason ?? '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div>
+              <p className="text-xs text-muted mb-2">Trades (last {Math.min(result.trades.length, 100)})</p>
+              <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                <table className="w-full text-xs">
+                  <thead><tr className="border-b border-hairline-on-dark text-muted">
+                    <th className="text-left p-2">Side</th><th className="text-right p-2">Entry</th><th className="text-right p-2">Exit</th>
+                    <th className="text-right p-2">PnL</th><th className="text-right p-2">R</th><th className="text-left p-2">Reason</th>
+                  </tr></thead>
+                  <tbody>
+                    {result.trades.map((t, i) => (
+                      <tr key={i} className="border-b border-surface-elevated-dark">
+                        <td className={`p-2 font-mono ${t.side === 'buy' ? 'text-trading-up' : 'text-trading-down'}`}>{t.side.toUpperCase()}</td>
+                        <td className="p-2 font-mono text-right">{t.entry.toFixed(2)}</td>
+                        <td className="p-2 font-mono text-right">{t.exit?.toFixed(2) ?? '—'}</td>
+                        <td className={`p-2 font-mono text-right ${(t.pnl ?? 0) >= 0 ? 'text-trading-up' : 'text-trading-down'}`}>{t.pnl != null ? `${t.pnl >= 0 ? '+' : ''}$${t.pnl.toFixed(2)}` : '—'}</td>
+                        <td className={`p-2 font-mono text-right ${(t.r_multiple ?? 0) >= 0 ? 'text-trading-up' : 'text-trading-down'}`}>{t.r_multiple?.toFixed(2) ?? '—'}</td>
+                        <td className="p-2 text-muted">{t.exit_reason ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </section>
