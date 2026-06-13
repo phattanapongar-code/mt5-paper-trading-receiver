@@ -21,6 +21,7 @@ from app.order_blocks import OrderBlockEngine
 from app.replay import ReplayEngine
 from app.multibot import service as multibot
 from app.multibot.runtime import process_tick_sync, hub
+from app.trader_client import forward_health, forward_account, forward_positions, forward_open, forward_pending, forward_close, forward_close_all, forward_modify, forward_symbols_available, forward_symbols_get, forward_symbols_post, forward_history
 
 logger = logging.getLogger(__name__)
 
@@ -174,9 +175,6 @@ async def receive_price(payload: TickPayload) -> dict[str, Any]:
 
 @app.post("/api/history/import")
 def import_history(req: HistoryImportRequest) -> dict[str, Any]:
-    if req.symbol != settings.symbol:
-        raise HTTPException(status_code=400, detail=f"Symbol mismatch: receiver expects {settings.symbol}")
-    
     if req.timeframe not in TIMEFRAMES:
         raise HTTPException(status_code=400, detail=f"Unsupported timeframe: {req.timeframe}")
     
@@ -208,16 +206,17 @@ def import_history(req: HistoryImportRequest) -> dict[str, Any]:
 
 
 @app.get("/api/history/status")
-def history_status() -> dict[str, Any]:
+def history_status(symbol: str = "") -> dict[str, Any]:
+    sym = symbol.upper() or settings.symbol
     counts = {
         tf: storage.query_one(
             "SELECT COUNT(*) AS count FROM candles WHERE symbol = ? AND timeframe = ? AND is_closed = 1",
-            (settings.symbol, tf),
+            (sym, tf),
         )["count"]
         for tf in TIMEFRAMES
     }
     latest_import = storage.query_one("SELECT * FROM history_imports ORDER BY id DESC LIMIT 1")
-    return {"symbol": settings.symbol, "closed_candles": counts, "latest_import": latest_import}
+    return {"symbol": sym, "closed_candles": counts, "latest_import": latest_import}
 
 
 @app.get("/health")
@@ -243,11 +242,16 @@ def health() -> dict[str, Any]:
 
 
 @app.get("/symbols")
-def get_symbols() -> dict[str, list[str]]:
+async def symbols_list() -> dict[str, list[str]]:
     rows = storage.query_all("SELECT DISTINCT symbol FROM ticks WHERE symbol IS NOT NULL ORDER BY symbol")
     symbols = [r["symbol"] for r in rows if r["symbol"]]
     if not symbols:
-        symbols = [settings.symbol]
+        symbols = settings.symbols[:]
+    trader = await forward_symbols_get()
+    if trader.get("ok") and trader.get("symbols"):
+        for s in trader["symbols"]:
+            if s not in symbols:
+                symbols.append(s)
     return {"symbols": symbols}
 
 
@@ -481,29 +485,40 @@ def signal_logs(limit: int = 100, bot_id: int | None = None) -> list[dict[str, A
 
 
 @app.post("/api/replay/run")
-def replay_run() -> dict[str, Any]:
-    return replay_engine.run(settings.symbol)
+def replay_run(symbol: str = "") -> dict[str, Any]:
+    sym = symbol.upper() or settings.symbol
+    return replay_engine.run(sym)
 
 
 @app.get("/api/replay/latest")
-def replay_latest() -> dict[str, Any] | None:
-    return replay_engine.latest(settings.symbol)
+def replay_latest(symbol: str = "") -> dict[str, Any] | None:
+    sym = symbol.upper() or settings.symbol
+    return replay_engine.latest(sym)
 
 
 @app.get("/api/symbols")
-def get_symbols() -> dict[str, list[str]]:
+async def get_symbols() -> dict[str, list[str]]:
     rows = storage.query_all(
         "SELECT DISTINCT symbol FROM candles WHERE symbol IS NOT NULL AND symbol != '' ORDER BY symbol"
     )
+    symbols = []
     if rows:
-        return {"symbols": [r["symbol"] for r in rows]}
-    rows = storage.query_all(
-        "SELECT DISTINCT symbol FROM ticks WHERE symbol IS NOT NULL AND symbol != '' ORDER BY symbol"
-    )
-    if rows:
-        return {"symbols": [r["symbol"] for r in rows]}
-    return {"symbols": ["XAUUSD", "BTCUSD", "ETHUSD", "EURUSD", "GBPUSD",
-                        "USDCAD", "USDJPY", "AUDUSD", "SPX500", "NAS100"]}
+        symbols = [r["symbol"] for r in rows]
+    if not symbols:
+        rows = storage.query_all(
+            "SELECT DISTINCT symbol FROM ticks WHERE symbol IS NOT NULL AND symbol != '' ORDER BY symbol"
+        )
+        if rows:
+            symbols = [r["symbol"] for r in rows]
+    if not symbols:
+        symbols = ["XAUUSD", "BTCUSD", "ETHUSD", "EURUSD", "GBPUSD",
+                    "USDCAD", "USDJPY", "AUDUSD", "SPX500", "NAS100"]
+    trader = await forward_symbols_get()
+    if trader.get("ok") and trader.get("symbols"):
+        for s in trader["symbols"]:
+            if s not in symbols:
+                symbols.append(s)
+    return {"symbols": symbols}
 
 
 @app.websocket("/ws/ticks")
@@ -515,6 +530,104 @@ async def ws_ticks(ws: WebSocket) -> None:
             await ws.receive_text()
     except WebSocketDisconnect:
         ws_clients.discard(ws)
+
+
+# ── Real Trading Proxy (→ trader.py :5051) ──
+
+@app.get("/api/trader/health")
+async def api_trader_health():
+    return await forward_health()
+
+
+@app.get("/api/trader/account")
+async def api_trader_account():
+    return await forward_account()
+
+
+@app.get("/api/trader/positions")
+async def api_trader_positions(symbol: str = ""):
+    return await forward_positions(symbol)
+
+
+@app.post("/api/trader/open")
+async def api_trader_open(request: Request):
+    body = await request.json()
+    return await forward_open(body)
+
+
+@app.post("/api/trader/pending")
+async def api_trader_pending(request: Request):
+    body = await request.json()
+    return await forward_pending(body)
+
+
+@app.post("/api/trader/close")
+async def api_trader_close(request: Request):
+    body = await request.json()
+    return await forward_close(body)
+
+
+@app.post("/api/trader/close_all")
+async def api_trader_close_all(request: Request):
+    body = await request.json()
+    return await forward_close_all(body)
+
+
+@app.post("/api/trader/modify")
+async def api_trader_modify(request: Request):
+    body = await request.json()
+    return await forward_modify(body)
+
+
+@app.get("/api/trader/symbols")
+async def api_trader_symbols():
+    return await forward_symbols_get()
+
+
+@app.get("/api/trader/symbols/available")
+async def api_trader_symbols_available():
+    return await forward_symbols_available()
+
+
+@app.post("/api/trader/symbols")
+async def api_trader_symbols_update(request: Request):
+    body = await request.json()
+    return await forward_symbols_post(body.get("symbols", []))
+
+
+@app.get("/api/trader/history")
+async def api_trader_history(limit: int = 100, days: int = 30):
+    return await forward_history(limit, days)
+
+
+# Receive webhook callbacks from trader.py (order_filled events)
+@app.post("/trader/webhook")
+async def trader_webhook(request: Request):
+    body = await request.json()
+    event = body.get("event", "?")
+    logger.info("Trader webhook received: event=%s", event)
+
+    if event == "order_filled":
+        logger.info("ORDER_FILLED | ticket=%s symbol=%s type=%s volume=%s price=%s sl=%s tp=%s",
+            body.get("ticket"), body.get("symbol"), body.get("type"),
+            body.get("volume"), body.get("open_price"), body.get("sl"), body.get("tp"))
+    elif event == "order_pending":
+        logger.info("ORDER_PENDING | ticket=%s symbol=%s type=%s volume=%s price=%s",
+            body.get("ticket"), body.get("symbol"), body.get("type"),
+            body.get("volume"), body.get("price"))
+    elif event == "position_closed":
+        logger.info("POSITION_CLOSED | ticket=%s symbol=%s type=%s volume=%s close_price=%s profit=%s commission=%s",
+            body.get("ticket"), body.get("symbol"), body.get("type"),
+            body.get("volume"), body.get("close_price"), body.get("profit"), body.get("commission"))
+    elif event == "position_modified":
+        logger.info("POSITION_MODIFIED | ticket=%s sl=%s tp=%s",
+            body.get("ticket"), body.get("sl"), body.get("tp"))
+    elif event == "all_positions_closed":
+        logger.info("ALL_POSITIONS_CLOSED | count=%s", body.get("count"))
+    else:
+        logger.info("UNKNOWN_EVENT | body=%s", body)
+
+    return {"ok": True}
 
 
 # Multi-bot v1.1+ routes

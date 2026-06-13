@@ -309,6 +309,96 @@ export interface ReplayRun {
   created_at: number
 }
 
+// ── Real Trading Types (trader.py) ──
+
+export interface TraderHealth {
+  ok: boolean
+  connected: boolean
+  terminal: string | null
+  terminal_version: number | null
+  account: {
+    login: number | null
+    balance: number | null
+    equity: number | null
+    margin: number | null
+    margin_free: number | null
+    margin_level: number | null
+    leverage: number | null
+    currency: string | null
+    name: string | null
+    server: string | null
+  } | null
+  symbols: string[]
+  queue_size: number
+  error: string | null
+}
+
+export interface TraderAccount {
+  ok: boolean
+  login: number
+  balance: number
+  equity: number
+  margin: number
+  margin_free: number
+  margin_level: number
+  leverage: number
+  currency: string
+  name: string
+  server: string
+  trade_allowed: boolean
+  trade_expert: boolean
+}
+
+export interface TraderPosition {
+  ticket: number
+  symbol: string
+  type: 'buy' | 'sell'
+  volume: number
+  open_price: number
+  sl: number | null
+  tp: number | null
+  profit: number
+  commission: number
+  swap: number
+  open_time: number
+  magic: number
+  comment: string
+}
+
+export interface TraderPositionsResponse {
+  ok: boolean
+  positions: TraderPosition[]
+  count: number
+}
+
+export interface TradeOpenRequest {
+  symbol: string
+  type: 'buy' | 'sell'
+  volume: number
+  sl?: number
+  tp?: number
+  sl_pips?: number
+  tp_pips?: number
+  comment?: string
+  magic?: number
+}
+
+export interface TradeResult {
+  ok: boolean
+  ticket?: number
+  price?: number
+  volume?: number
+  sl?: number
+  tp?: number
+  error?: string
+  error_code?: number
+  queued?: boolean
+}
+
+export interface TraderSymbolsResponse {
+  symbols: string[]
+}
+
 export interface HistoryStatus {
   symbol: string
   closed_candles: Record<string, number>

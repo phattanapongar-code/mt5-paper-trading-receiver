@@ -14,9 +14,11 @@ class Settings:
     app_host: str = os.getenv("APP_HOST", "0.0.0.0")
     app_port: int = int(os.getenv("APP_PORT", "5050"))
     db_path: str = os.getenv("DB_PATH", "data/receiver.sqlite3")
+    symbols: list[str] = os.getenv("MT5_SYMBOLS", "XAUUSD").split(",")
     symbol: str = os.getenv("SYMBOL", "XAUUSD")
     initial_balance: float = float(os.getenv("INITIAL_BALANCE", "500.0"))
     max_spread: float = float(os.getenv("MAX_SPREAD", "1.5"))
+    symbols_file_path: str = os.getenv("SYMBOLS_FILE_PATH", "symbols.json")
     stale_tick_seconds: int = int(os.getenv("STALE_TICK_SECONDS", "10"))
     swing_window: int = int(os.getenv("SWING_WINDOW", "3"))
     structure_scan_limit: int = int(os.getenv("STRUCTURE_SCAN_LIMIT", "1200"))
@@ -53,6 +55,15 @@ class Settings:
     gap_check_enabled: bool = _bool("GAP_CHECK_ENABLED", "false")
     gap_max_percent: float = float(os.getenv("GAP_MAX_PERCENT", "0.5"))
     gap_threshold_seconds: int = int(os.getenv("GAP_THRESHOLD_SECONDS", "3600"))
+
+    # ── Real Trading (trader.py) ──
+    trade_host: str = os.getenv("TRADE_HOST", "0.0.0.0")
+    trade_port: int = int(os.getenv("TRADE_PORT", "5051"))
+    trade_api_key: str = os.getenv("TRADE_API_KEY", "")
+    trade_magic: int = int(os.getenv("TRADE_MAGIC", "20240601"))
+    trade_allowed_ips: list[str] = os.getenv("TRADE_ALLOWED_IPS", "127.0.0.1").split(",")
+    trade_webhook_url: str = os.getenv("TRADE_WEBHOOK_URL", "")
+    trade_auto_retry_max: int = int(os.getenv("TRADE_AUTO_RETRY_MAX", "3"))
 
 
 settings = Settings()

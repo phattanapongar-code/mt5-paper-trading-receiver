@@ -44,6 +44,8 @@ const Signals = lazy(() => import('./pages/Signals'))
 const Performance = lazy(() => import('./pages/Performance'))
 const TradeHistory = lazy(() => import('./pages/TradeHistory'))
 const Trade = lazy(() => import('./pages/Trade'))
+const LiveTrade = lazy(() => import('./pages/LiveTrade'))
+const LiveHistory = lazy(() => import('./pages/LiveHistory'))
 const MarketStructure = lazy(() => import('./pages/MarketStructure'))
 const PendingOrders = lazy(() => import('./pages/PendingOrders'))
 const Settings = lazy(() => import('./pages/Settings'))
@@ -123,6 +125,8 @@ function AppRoutes() {
         <Route path="/performance" element={<Performance />} />
         <Route path="/trades" element={<TradeHistory />} />
         <Route path="/trade" element={<Trade />} />
+        <Route path="/live" element={<LiveTrade />} />
+        <Route path="/live/history" element={<LiveHistory />} />
         <Route path="/market-structure" element={<MarketStructure />} />
         <Route path="/pending-orders" element={<PendingOrders />} />
         <Route path="/settings" element={<Settings />} />

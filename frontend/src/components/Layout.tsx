@@ -3,12 +3,12 @@ import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useBotContext } from '../context/BotContext'
 import { useTheme } from '../context/ThemeContext'
-import { FiCircle, FiBarChart2, FiClipboard, FiDollarSign, FiBell, FiTrendingUp, FiSettings, FiPlay, FiSearch, FiClock, FiLayers, FiMenu, FiChevronRight, FiChevronLeft, FiX, FiSun, FiMoon, FiLogOut } from 'react-icons/fi'
+import { FiCircle, FiBarChart2, FiClipboard, FiDollarSign, FiBell, FiTrendingUp, FiSettings, FiPlay, FiSearch, FiClock, FiLayers, FiMenu, FiChevronRight, FiChevronLeft, FiX, FiSun, FiMoon, FiLogOut, FiActivity } from 'react-icons/fi'
 import { FaRobot, FaBalanceScale } from 'react-icons/fa'
 import type { IconType } from 'react-icons'
 import type { Bot } from '../types/api'
 
-const navItems: { to: string; label: string; icon: IconType }[] = [
+const paperNavItems: { to: string; label: string; icon: IconType }[] = [
   { to: '/', label: 'Overview', icon: FiCircle },
   { to: '/charts', label: 'Charts', icon: FiBarChart2 },
   { to: '/bots', label: 'Bots', icon: FaRobot },
@@ -19,6 +19,14 @@ const navItems: { to: string; label: string; icon: IconType }[] = [
   { to: '/performance', label: 'Performance', icon: FiTrendingUp },
   { to: '/market-structure', label: 'Structure', icon: FiLayers },
   { to: '/pending-orders', label: 'Pending', icon: FiClock },
+]
+
+const liveNavItems: { to: string; label: string; icon: IconType }[] = [
+  { to: '/live', label: 'Live Trading', icon: FiActivity },
+  { to: '/live/history', label: 'Live History', icon: FiClipboard },
+]
+
+const bottomNavItems: { to: string; label: string; icon: IconType }[] = [
   { to: '/settings', label: 'Settings', icon: FiSettings },
   { to: '/replay', label: 'Replay', icon: FiPlay },
   { to: '/backtest', label: 'Backtest', icon: FiSearch },
@@ -59,7 +67,7 @@ export default function Layout() {
         case '7': navigate('/signals'); break
         case '8': navigate('/performance'); break
         case '9': navigate('/market-structure'); break
-        case '0': navigate('/settings'); break
+        case '0': navigate('/live'); break
         case 'b': setCollapsed(c => !c); break
       }
     }
@@ -185,11 +193,64 @@ export default function Layout() {
         )}
 
         <nav className="flex-1 overflow-y-auto py-2 px-1 space-y-0.5">
-          {navItems.map((item) => (
+          {/* Paper Trading */}
+          {!collapsed && (
+            <div className="px-3 py-1.5 text-[10px] text-muted uppercase tracking-widest font-semibold">Paper Trading</div>
+          )}
+          {paperNavItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               end={item.to === '/'}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors ${
+                  isActive
+                    ? 'bg-primary/10 text-primary border-l-2 border-primary'
+                    : 'text-muted hover:bg-surface-card-dark hover:text-body border-l-2 border-transparent'
+                }`
+              }
+            >
+              <span className="w-5 text-center shrink-0"><item.icon size={16} /></span>
+              {!collapsed && <span>{item.label}</span>}
+            </NavLink>
+          ))}
+
+          {/* Separator */}
+          {!collapsed && (
+            <div className="my-2 mx-3 border-t border-hairline-on-dark/50" />
+          )}
+
+          {/* Live Trading */}
+          {!collapsed && (
+            <div className="px-3 py-1.5 text-[10px] text-trading-up uppercase tracking-widest font-semibold">Live Trading</div>
+          )}
+          {liveNavItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors ${
+                  isActive
+                    ? 'bg-trading-up/10 text-trading-up border-l-2 border-trading-up'
+                    : 'text-muted hover:bg-surface-card-dark hover:text-body border-l-2 border-transparent'
+                }`
+              }
+            >
+              <span className="w-5 text-center shrink-0"><item.icon size={16} /></span>
+              {!collapsed && <span>{item.label}</span>}
+            </NavLink>
+          ))}
+
+          {/* Separator */}
+          {!collapsed && (
+            <div className="my-2 mx-3 border-t border-hairline-on-dark/50" />
+          )}
+
+          {/* Bottom nav items */}
+          {bottomNavItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors ${
                   isActive

@@ -1,5 +1,21 @@
 # MT5 Paper Trading Receiver - Agent Notes
 
+## Golden Rules
+
+1. **ห้ามเดา — ไม่รู้ให้ถามก่อนเสมอ**
+   - ถ้าไม่แน่ใจเลข จำนวน ราคา คอนฟิก หรือรายละเอียดอะไร → ถาม user ก่อน
+   - ห้ามสมมติว่า broker มีกี่ symbol, MT5 build เท่าไหร่, settings อะไร
+   - ห้ามเดา API behavior, error codes, หรือผลลัพท์ของระบบอื่น
+
+2. **คิดเผื่อหน้าบ้านทุกครั้ง**
+   - เมื่อสร้าง/แก้ API endpoint ไหน → คิดเสมอว่าหน้าบ้านต้องทำอะไรบ้าง
+   - ทุก endpoint ที่เพิ่ม → ต้องมี proxy ใน main.py + type ใน api.ts
+   - เวลาเพิ่ม backend feature → เพิ่ม frontend component ให้ครบในรอบเดียวกัน
+
+3. **ทุกคำสั่งให้ถามก่อนถ้ามีทางเลือก**
+   - Flask vs FastAPI, SQLite vs JSON, port number, naming convention
+   - อย่าเลือกเอง — เสนอ options แล้วให้ user ตัดสินใจ
+
 ## Quick Start
 
 ```bash
