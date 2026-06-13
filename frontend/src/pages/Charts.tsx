@@ -5,6 +5,7 @@ import { useWebSocket } from '../api/ws'
 import { useBotContext } from '../context/BotContext'
 import { useDrawingTools } from '../components/DrawingTools'
 import LoadingSpinner from '../components/LoadingSpinner'
+import { FiEdit3, FiChevronDown, FiChevronRight, FiArrowUpRight, FiMinus, FiSquare, FiArrowRight, FiX, FiArrowUp, FiArrowDown, FiStar } from 'react-icons/fi'
 import type { Candle, Indicators, OrderBlock, MarketStructureState, Trade } from '../types/api'
 
 interface CandlePendingOrder {
@@ -361,7 +362,7 @@ export default function Charts() {
               showDrawTools ? 'bg-primary/10 text-primary border-primary/50' : 'bg-surface-card-dark text-muted border-hairline-on-dark hover:border-surface-elevated-dark'
             }`}
           >
-            ✏️ Draw {showDrawTools ? '▾' : '▸'}
+            <FiEdit3 size={14} /> Draw {showDrawTools ? <FiChevronDown size={14} /> : <FiChevronRight size={14} />}
           </button>
           {showDrawTools && (
             <div className="flex items-center gap-1.5 flex-wrap">
@@ -375,7 +376,7 @@ export default function Charts() {
                       : 'bg-surface-card-dark text-muted border-hairline-on-dark hover:border-surface-elevated-dark'
                   }`}
                 >
-                  {tool === 'trendline' ? '↗' : tool === 'horizontal' ? '—' : tool === 'vertical' ? '│' : tool === 'rectangle' ? '▭' : '➡'}
+                  {tool === 'trendline' ? <FiArrowUpRight size={14} /> : tool === 'horizontal' ? <FiMinus size={14} /> : tool === 'vertical' ? <span className="w-px h-4 bg-current inline-block" /> : tool === 'rectangle' ? <FiSquare size={14} /> : <FiArrowRight size={14} />}
                   <span className="ml-1 hidden sm:inline">{tool}</span>
                 </button>
               ))}
@@ -388,7 +389,7 @@ export default function Charts() {
               />
               {drawingCount > 0 && (
                 <button onClick={clearAll} className="px-2 py-1.5 text-xs rounded-md border border-hairline-on-dark bg-surface-card-dark text-muted hover:text-trading-down cursor-pointer">
-                  ✕ Clear
+                  <FiX size={14} /> Clear
                 </button>
               )}
               {selectedId && <span className="text-[10px] text-muted">R-click delete</span>}
@@ -427,9 +428,9 @@ export default function Charts() {
       {obs.length > 0 && (
         <div className="flex items-center gap-2 text-xs text-muted">
           <span>{obs.length} active OBs</span>
-          <span className="text-trading-up">▲ {obs.filter(o => o.side === 'buy').length}</span>
-          <span className="text-trading-down">▼ {obs.filter(o => o.side === 'sell').length}</span>
-          <span className="text-primary">★ {obs.filter(o => o.is_strong).length} strong</span>
+          <span className="text-trading-up inline-flex items-center gap-0.5"><FiArrowUp size={12} /> {obs.filter(o => o.side === 'buy').length}</span>
+          <span className="text-trading-down inline-flex items-center gap-0.5"><FiArrowDown size={12} /> {obs.filter(o => o.side === 'sell').length}</span>
+          <span className="text-primary inline-flex items-center gap-0.5"><FiStar size={12} fill="currentColor" /> {obs.filter(o => o.is_strong).length} strong</span>
         </div>
       )}
     </div>

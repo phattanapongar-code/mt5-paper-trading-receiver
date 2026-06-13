@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import client from '../api/client'
 import { useToast } from '../components/Toast'
 import LoadingSpinner from '../components/LoadingSpinner'
+import { FiStar } from 'react-icons/fi'
 import type { MarketStructureState, OrderBlock, OrderBlockState, BosEvent } from '../types/api'
 
 const TIMEFRAMES = ['M1', 'M5', 'M15', 'H1'] as const
@@ -198,7 +199,7 @@ export default function MarketStructure() {
                     <td className="p-3 font-mono text-xs text-right">{ob.retest_count}</td>
                     <td className="p-3">
                       <span className={`text-xs font-mono ${ob.is_strong ? 'text-primary' : 'text-muted'}`}>
-                        {ob.status}{ob.is_strong ? ' ★' : ''}
+                        <span className="inline-flex items-center gap-0.5">{ob.status}{ob.is_strong ? <FiStar size={12} fill="currentColor" /> : ''}</span>
                       </span>
                     </td>
                   </tr>

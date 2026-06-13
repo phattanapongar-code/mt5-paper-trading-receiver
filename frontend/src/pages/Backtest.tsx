@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { createChart, LineSeries, type IChartApi, type ISeriesApi } from 'lightweight-charts'
 import client from '../api/client'
 import { useToast } from '../components/Toast'
+import { FiPlay } from 'react-icons/fi'
 import type { Bot, BacktestResult, BacktestHistory } from '../types/api'
 
 const TIMEFRAMES = ['M1', 'M5', 'M15', 'H1'] as const
@@ -201,7 +202,7 @@ export default function Backtest() {
 
         <button onClick={runBacktest} disabled={running}
           className="px-4 py-2 text-xs rounded bg-primary/10 text-primary border border-primary/50 cursor-pointer disabled:opacity-50">
-          {running ? 'Running...' : '▶ Run Backtest'}
+          <span className="inline-flex items-center gap-1.5">{running ? 'Running...' : <><FiPlay size={14} /> Run Backtest</>}</span>
         </button>
       </section>
 

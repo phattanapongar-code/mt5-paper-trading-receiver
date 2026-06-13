@@ -3,22 +3,25 @@ import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useBotContext } from '../context/BotContext'
 import { useTheme } from '../context/ThemeContext'
+import { FiCircle, FiBarChart2, FiClipboard, FiDollarSign, FiBell, FiTrendingUp, FiSettings, FiPlay, FiSearch, FiClock, FiLayers, FiMenu, FiChevronRight, FiChevronLeft, FiX, FiSun, FiMoon, FiLogOut } from 'react-icons/fi'
+import { FaRobot, FaBalanceScale } from 'react-icons/fa'
+import type { IconType } from 'react-icons'
 import type { Bot } from '../types/api'
 
-const navItems = [
-  { to: '/', label: 'Overview', icon: '◉' },
-  { to: '/charts', label: 'Charts', icon: '📊' },
-  { to: '/bots', label: 'Bots', icon: '🤖' },
-  { to: '/compare', label: 'Compare', icon: '⚖️' },
-  { to: '/trades', label: 'Trade History', icon: '📋' },
-  { to: '/trade', label: 'Manual Trade', icon: '💰' },
-  { to: '/signals', label: 'Signals', icon: '🔔' },
-  { to: '/performance', label: 'Performance', icon: '📈' },
-  { to: '/market-structure', label: 'Structure', icon: '🏗️' },
-  { to: '/pending-orders', label: 'Pending', icon: '⏳' },
-  { to: '/settings', label: 'Settings', icon: '⚙️' },
-  { to: '/replay', label: 'Replay', icon: '▶️' },
-  { to: '/backtest', label: 'Backtest', icon: '🔬' },
+const navItems: { to: string; label: string; icon: IconType }[] = [
+  { to: '/', label: 'Overview', icon: FiCircle },
+  { to: '/charts', label: 'Charts', icon: FiBarChart2 },
+  { to: '/bots', label: 'Bots', icon: FaRobot },
+  { to: '/compare', label: 'Compare', icon: FaBalanceScale },
+  { to: '/trades', label: 'Trade History', icon: FiClipboard },
+  { to: '/trade', label: 'Manual Trade', icon: FiDollarSign },
+  { to: '/signals', label: 'Signals', icon: FiBell },
+  { to: '/performance', label: 'Performance', icon: FiTrendingUp },
+  { to: '/market-structure', label: 'Structure', icon: FiLayers },
+  { to: '/pending-orders', label: 'Pending', icon: FiClock },
+  { to: '/settings', label: 'Settings', icon: FiSettings },
+  { to: '/replay', label: 'Replay', icon: FiPlay },
+  { to: '/backtest', label: 'Backtest', icon: FiSearch },
 ]
 
 const STRATEGY_COLORS: Record<string, string> = {
@@ -68,21 +71,21 @@ export default function Layout() {
     <div className="flex h-screen overflow-hidden">
       {/* Mobile hamburger + header bar */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-40 flex items-center gap-2 h-[52px] px-3 bg-surface-card-dark border-b border-hairline-on-dark">
-        <button
-          onClick={() => setMobileOpen(true)}
-          className="text-body hover:text-primary cursor-pointer text-xl leading-none p-1"
-        >
-          ☰
-        </button>
+          <button
+            onClick={() => setMobileOpen(true)}
+            className="text-body hover:text-primary cursor-pointer text-xl leading-none p-1"
+          >
+            <FiMenu size={18} />
+          </button>
         <span className="font-sans text-xs tracking-widest text-primary font-bold uppercase">
           PAPER TRADING
         </span>
-        <button
-          onClick={() => setMobileOpen(true)}
-          className="ml-auto text-muted hover:text-body cursor-pointer text-lg leading-none"
-        >
-          ☰
-        </button>
+          <button
+            onClick={() => setMobileOpen(true)}
+            className="ml-auto text-muted hover:text-body cursor-pointer text-lg leading-none"
+          >
+            <FiMenu size={18} />
+          </button>
       </div>
 
       {/* Mobile overlay backdrop */}
@@ -123,14 +126,14 @@ export default function Layout() {
             onClick={() => setCollapsed(!collapsed)}
             className="ml-auto text-muted hover:text-body cursor-pointer text-lg leading-none"
           >
-            {collapsed ? '▸' : '◂'}
+            {collapsed ? <FiChevronRight size={16} /> : <FiChevronLeft size={16} />}
           </button>
           {/* Mobile close button */}
           <button
             onClick={() => setMobileOpen(false)}
             className="md:hidden text-muted hover:text-body cursor-pointer text-lg leading-none"
           >
-            ✕
+            <FiX size={16} />
           </button>
         </div>
 
@@ -195,7 +198,7 @@ export default function Layout() {
                 }`
               }
             >
-              <span className="w-5 text-center text-base shrink-0">{item.icon}</span>
+              <span className="w-5 text-center shrink-0"><item.icon size={16} /></span>
               {!collapsed && <span>{item.label}</span>}
             </NavLink>
           ))}
@@ -206,14 +209,14 @@ export default function Layout() {
             onClick={toggleTheme}
             className="flex items-center gap-3 w-full px-3 py-2.5 rounded-md text-sm text-muted hover:bg-surface-card-dark hover:text-body transition-colors cursor-pointer"
           >
-            <span className="w-5 text-center shrink-0">{theme === 'dark' ? '☀️' : '🌙'}</span>
+            <span className="w-5 text-center shrink-0">{theme === 'dark' ? <FiSun size={16} /> : <FiMoon size={16} />}</span>
             {!collapsed && <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>}
           </button>
           <button
             onClick={logout}
             className="flex items-center gap-3 w-full px-3 py-2.5 rounded-md text-sm text-muted hover:bg-surface-card-dark hover:text-trading-down transition-colors cursor-pointer"
           >
-            <span className="w-5 text-center shrink-0">↩</span>
+            <span className="w-5 text-center shrink-0"><FiLogOut size={16} /></span>
             {!collapsed && <span>Logout</span>}
           </button>
         </div>
@@ -257,7 +260,7 @@ function BotChip({
         style={{ backgroundColor: color, boxShadow: live ? `0 0 4px ${color}` : undefined }}
       />
       {label}
-      {live && <span className="text-trading-up">●</span>}
+      {live && <span className="w-1.5 h-1.5 rounded-full bg-trading-up inline-block" />}
     </button>
   )
 }

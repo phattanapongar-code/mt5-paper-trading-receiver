@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import client from '../api/client'
 import { useBotContext } from '../context/BotContext'
 import { useToast } from '../components/Toast'
+import { FiTriangle } from 'react-icons/fi'
 import type { BotState, Wallet } from '../types/api'
 
 export default function Trade() {
@@ -134,7 +135,7 @@ export default function Trade() {
           {/* Position Sizing Calculator */}
           {form.stop_loss && health?.latest_tick && (
             <div className="bg-surface-elevated-dark/30 rounded p-3 text-xs space-y-1 mb-2">
-              <p className="text-muted font-semibold mb-1">📐 Position Sizing</p>
+              <p className="text-muted font-semibold mb-1 inline-flex items-center gap-1"><FiTriangle size={14} /> Position Sizing</p>
               {(() => {
                 const entry = health.latest_tick?.bid ?? 0
                 const sl = parseFloat(form.stop_loss)

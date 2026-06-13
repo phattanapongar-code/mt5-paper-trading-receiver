@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import client from '../api/client'
+import { FiPlay, FiCheck, FiX, FiAlertTriangle } from 'react-icons/fi'
 import type { ReplayRun } from '../types/api'
 
 interface Props {
@@ -73,7 +74,7 @@ export default function ReplayViewer({ onRun }: Props) {
         </div>
         <button onClick={run} disabled={running}
           className="px-3 py-1.5 text-xs bg-primary/10 text-primary border border-primary/50 rounded disabled:opacity-40 cursor-pointer">
-          {running ? 'Running...' : '▶ Run Replay'}
+          <span className="inline-flex items-center gap-1.5">{running ? 'Running...' : <><FiPlay size={14} /> Run Replay</>}</span>
         </button>
       </div>
 
@@ -121,7 +122,7 @@ export default function ReplayViewer({ onRun }: Props) {
                           r.result === 'sl' ? 'bg-trading-down/10 text-trading-down' :
                           'bg-surface-elevated-dark text-muted'
                         }`}>
-                          {r.result === 'tp' ? 'TP ✓' : r.result === 'sl' ? 'SL ✗' : r.result === 'open' ? 'Open' : 'Expired'}
+                          <span className="inline-flex items-center gap-1">{r.result === 'tp' ? <><FiCheck size={12} /> TP</> : r.result === 'sl' ? <><FiX size={12} /> SL</> : r.result === 'open' ? 'Open' : 'Expired'}</span>
                         </span>
                       </td>
                     </tr>
@@ -132,7 +133,7 @@ export default function ReplayViewer({ onRun }: Props) {
           )}
 
           <p className="text-[10px] text-muted italic border-t border-hairline-on-dark pt-2">
-            ⚠ Research preview — uses M1 OHLC ranges, not real ticks. Results are directional only.
+            <FiAlertTriangle size={12} className="inline-block mr-0.5" /> Research preview — uses M1 OHLC ranges, not real ticks. Results are directional only.
           </p>
         </>
       )}

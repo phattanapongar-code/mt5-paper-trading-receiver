@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import client from '../api/client'
 import { useToast } from '../components/Toast'
+import { FiPlay, FiX } from 'react-icons/fi'
 import type { OptimizeResult } from '../types/api'
 
 const TIMEFRAMES = ['M1', 'M5', 'M15', 'H1'] as const
@@ -154,7 +155,7 @@ export default function BacktestOptimize() {
                 <span className="text-xs text-muted">step</span>
                 <input type="number" value={row.step} onChange={e => updateParam(i, 'step', e.target.value)} step="any"
                   className="w-16 px-2 py-1 text-xs bg-surface-elevated-dark border border-hairline-on-dark rounded text-body" />
-                <button onClick={() => removeParam(i)} className="text-xs text-rose-500 px-1 cursor-pointer">✕</button>
+                <button onClick={() => removeParam(i)} className="text-xs text-rose-500 px-1 cursor-pointer"><FiX size={14} /></button>
               </div>
             ))}
           </div>
@@ -162,7 +163,7 @@ export default function BacktestOptimize() {
 
         <button onClick={runOptimize} disabled={running}
           className="px-4 py-2 text-xs rounded bg-primary/10 text-primary border border-primary/50 cursor-pointer disabled:opacity-50">
-          {running ? 'Optimizing...' : '▶ Run Optimization'}
+          <span className="inline-flex items-center gap-1.5">{running ? 'Optimizing...' : <><FiPlay size={14} /> Run Optimization</>}</span>
         </button>
       </section>
 
