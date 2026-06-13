@@ -48,11 +48,9 @@ export default function ReplayViewer({ onRun }: Props) {
   const run = useCallback(async () => {
     setRunning(true)
     try {
-      const [runRes, latestRes] = await Promise.all([
-        client.post('/replay/run'),
-        client.get<ReplayRun>('/replay/latest'),
-      ])
-      setLatest(latestRes.data ?? runRes.data)
+      await client.post('/replay/run')
+      const latestRes = await client.get<ReplayRun>('/replay/latest')
+      setLatest(latestRes.data)
       onRun?.()
     } catch {
       alert('Replay failed')

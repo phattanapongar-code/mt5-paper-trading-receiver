@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import type { IChartApi, Time } from 'lightweight-charts'
+import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts'
 
 export type Tool = 'trendline' | 'horizontal' | 'vertical' | 'rectangle' | 'ray' | null
 
@@ -18,7 +18,7 @@ export interface Drawing {
 const COLORS = ['#FCD535', '#0ecb81', '#f6465d', '#5e7cc4', '#8c6cd8', '#ff8c00', '#ff69b4']
 let nextId = 0
 
-export function useDrawingTools(chartApi: IChartApi | null, containerRef: React.RefObject<HTMLDivElement | null>) {
+export function useDrawingTools(chartApi: IChartApi | null, containerRef: React.RefObject<HTMLDivElement | null>, seriesApi?: ISeriesApi<'Candlestick'> | null) {
   const [activeTool, setActiveTool] = useState<Tool>(null)
   const [color, setColor] = useState(COLORS[0])
   const [drawings, setDrawings] = useState<Drawing[]>([])
@@ -27,22 +27,22 @@ export function useDrawingTools(chartApi: IChartApi | null, containerRef: React.
   const overlayRef = useRef<SVGSVGElement>(null)
 
   const toPixel = useCallback((time: Time, price: number) => {
-    if (!chartApi) return { x: 0, y: 0 }
+    if (!chartApi || !seriesApi) return { x: 0, y: 0 }
     const x = chartApi.timeScale().timeToCoordinate(time)
-    const y = chartApi.priceScale().priceToCoordinate(price)
+    const y = seriesApi.priceToCoordinate(price)
     return { x: x ?? 0, y: y ?? 0 }
-  }, [chartApi])
+  }, [chartApi, seriesApi])
 
   const toData = useCallback((clientX: number, clientY: number): Point | null => {
-    if (!chartApi || !containerRef.current) return null
+    if (!chartApi || !seriesApi || !containerRef.current) return null
     const rect = containerRef.current.getBoundingClientRect()
     const x = clientX - rect.left
     const y = clientY - rect.top
     const time = chartApi.timeScale().coordinateToTime(x)
-    const price = chartApi.priceScale().coordinateToPrice(y)
+    const price = seriesApi.coordinateToPrice(y)
     if (time == null || price == null) return null
     return { time, price }
-  }, [chartApi, containerRef])
+  }, [chartApi, seriesApi, containerRef])
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (!activeTool || e.button !== 0) return

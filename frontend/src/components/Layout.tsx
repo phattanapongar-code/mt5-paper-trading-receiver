@@ -78,10 +78,10 @@ export default function Layout() {
           PAPER TRADING
         </span>
         <button
-          onClick={() => setCollapsed(!collapsed)}
+          onClick={() => setMobileOpen(true)}
           className="ml-auto text-muted hover:text-body cursor-pointer text-lg leading-none"
         >
-          {collapsed ? '▸' : '◂'}
+          ☰
         </button>
       </div>
 

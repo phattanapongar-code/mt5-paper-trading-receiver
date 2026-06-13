@@ -1,5 +1,4 @@
-import axios from 'axios'
-import type { AxiosRequestConfig } from 'axios'
+import axios, { type InternalAxiosRequestConfig } from 'axios'
 
 const STORAGE_KEY = 'mt5_dashboard_auth'
 
@@ -24,7 +23,7 @@ const SYMBOL_ENDPOINTS = [
   '/candles', '/indicators', '/swings', '/bos', '/order-blocks',
   '/market-structure', '/state', '/pending-orders/state',
 ]
-client.interceptors.request.use((config: AxiosRequestConfig) => {
+client.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   if (_symbol && config.method?.toUpperCase() === 'GET') {
     const shouldInject = SYMBOL_ENDPOINTS.some(p => (config.url ?? '').startsWith(p))
     if (shouldInject) {

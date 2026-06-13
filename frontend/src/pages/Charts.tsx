@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { createChart, ColorType, createSeriesMarkers, type IChartApi, type ISeriesApi, type ISeriesMarkersPluginApi, type CandlestickData, type LineData, type UTCTimestamp, type Time, CandlestickSeries, LineSeries } from 'lightweight-charts'
+import { createChart, ColorType, createUpDownMarkers, type IChartApi, type ISeriesApi, type CandlestickData, type LineData, type UTCTimestamp, CandlestickSeries, LineSeries } from 'lightweight-charts'
 import client from '../api/client'
 import { useWebSocket } from '../api/ws'
 import { useBotContext } from '../context/BotContext'
@@ -33,7 +33,7 @@ export default function Charts() {
   const ma60SeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
   const ma80SeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
   const ma300SeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
-  const markersPluginRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null)
+  const markersPluginRef = useRef<any>(null)
   const priceLinesRef = useRef<ReturnType<ISeriesApi<'Candlestick'>['createPriceLine']>[]>([])
 
   const [timeframe, setTimeframe] = useState<TF>('M15')
@@ -47,6 +47,7 @@ export default function Charts() {
   const [refreshing, setRefreshing] = useState(false)
   const [showDrawTools, setShowDrawTools] = useState(false)
   const [trades, setTrades] = useState<Trade[]>([])
+  const [candleSeries, setCandleSeries] = useState<ISeriesApi<'Candlestick'> | null>(null)
   const debounceWsRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastCandleRef = useRef<{ time: UTCTimestamp; high: number; low: number } | null>(null)
 
@@ -54,7 +55,7 @@ export default function Charts() {
     activeTool, setActiveTool, color, setColor, selectedId, drawingCount,
     overlayRef, handlers, clearAll,
     renderDrawings, liveSvg,
-  } = useDrawingTools(chartApi, chartRef as React.RefObject<HTMLDivElement | null>)
+  } = useDrawingTools(chartApi, chartRef as React.RefObject<HTMLDivElement | null>, candleSeries)
 
   const fetchData = useCallback(async (tf: TF, dr?: DR) => {
     setRefreshing(true)
@@ -170,28 +171,29 @@ export default function Charts() {
       color: '#FCD535',
       lineWidth: 1,
       lastValueVisible: false,
-      priceFormat: { type: 'custom' as const, formatter: (p: number) => p.toFixed(2) },
+      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
       title: 'MA60',
     })
     const ma80 = chart.addSeries(LineSeries, {
       color: '#5e7cc4',
       lineWidth: 1,
       lastValueVisible: false,
-      priceFormat: { type: 'custom' as const, formatter: (p: number) => p.toFixed(2) },
+      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
       title: 'MA80',
     })
     const ma300 = chart.addSeries(LineSeries, {
       color: '#8c6cd8',
       lineWidth: 1,
       lastValueVisible: false,
-      priceFormat: { type: 'custom' as const, formatter: (p: number) => p.toFixed(2) },
+      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
       title: 'MA300',
     })
 
-    markersPluginRef.current = createSeriesMarkers(candlesSeries)
+    markersPluginRef.current = createUpDownMarkers(candlesSeries)
 
     setChartApi(chart)
     candleSeriesRef.current = candlesSeries
+    setCandleSeries(candlesSeries)
     ma60SeriesRef.current = ma60
     ma80SeriesRef.current = ma80
     ma300SeriesRef.current = ma300
@@ -285,26 +287,24 @@ export default function Charts() {
     }
 
     // Swing point + trade markers
-    const markers: { time: UTCTimestamp; position: 'aboveBar' | 'belowBar'; color: string; shape: 'arrowUp' | 'arrowDown'; text: string }[] = []
+    const markers: { time: UTCTimestamp; value: number; sign: number }[] = []
     if (structure?.latest_swing_high?.pivot_open_time) {
-      markers.push({ time: structure.latest_swing_high.pivot_open_time as UTCTimestamp, position: 'belowBar', color: '#FCD535', shape: 'arrowDown', text: 'H' })
+      markers.push({ time: structure.latest_swing_high.pivot_open_time as UTCTimestamp, value: structure.latest_swing_high.price, sign: -1 })
     }
     if (structure?.latest_swing_low?.pivot_open_time) {
-      markers.push({ time: structure.latest_swing_low.pivot_open_time as UTCTimestamp, position: 'aboveBar', color: '#FCD535', shape: 'arrowUp', text: 'L' })
+      markers.push({ time: structure.latest_swing_low.pivot_open_time as UTCTimestamp, value: structure.latest_swing_low.price, sign: 1 })
     }
     for (const t of trades) {
       if (t.opened_at) {
         markers.push({
           time: t.opened_at as UTCTimestamp,
-          position: t.side === 'buy' ? 'belowBar' : 'aboveBar',
-          color: t.pnl != null && t.pnl > 0 ? '#0ecb81' : '#f6465d',
-          shape: t.side === 'buy' ? 'arrowUp' : 'arrowDown',
-          text: `${t.side.toUpperCase()} ${t.lot}L`,
+          value: t.entry,
+          sign: t.pnl != null && t.pnl > 0 ? 1 : -1,
         })
       }
     }
-    if (markers.length) {
-      markersPluginRef.current?.setMarkers(markers)
+    if (markers.length && markersPluginRef.current) {
+      markersPluginRef.current.setMarkers(markers)
     }
   }, [candles, indicators, obs, structure, pending, trades, chartApi])
 

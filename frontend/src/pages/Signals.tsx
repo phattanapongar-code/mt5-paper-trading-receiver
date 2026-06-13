@@ -13,7 +13,7 @@ export default function Signals() {
 
   useEffect(() => {
     Promise.all([
-      client.get<BotSignalLog[]>('/signal-logs?limit=500'),
+      client.get<BotSignalLog[]>('/signal-logs', { params: { limit: 500 } }),
       client.get<Bot[]>('/bots'),
     ]).then(([logsRes, botsRes]) => {
       setLogs(logsRes.data)

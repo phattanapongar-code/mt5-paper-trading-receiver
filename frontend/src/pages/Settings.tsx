@@ -3,8 +3,6 @@ import client from '../api/client'
 import { useToast } from '../components/Toast'
 import type { Health, HistoryStatus, Bot, AlertConfig as AlertConfigData } from '../types/api'
 
-const log = (...args: unknown[]) => console.log('[Settings]', ...args)
-
 export default function Settings() {
   const { addToast } = useToast()
   const [health, setHealth] = useState<Health | null>(null)
@@ -28,9 +26,7 @@ export default function Settings() {
       try {
         const healthRes = await fetch('/health')
         if (healthRes.ok) setHealth(await healthRes.json())
-      } catch {
-        log('health fetch failed')
-      }
+      } catch {}
     } catch {
     } finally {
       setLoading(false)

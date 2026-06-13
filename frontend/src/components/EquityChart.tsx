@@ -34,14 +34,14 @@ export default function EquityChart({ className = '', height = 300, botId }: Equ
       color: '#FCD535',
       lineWidth: 2,
       crosshairMarkerVisible: true,
-      priceFormat: { type: 'custom', formatter: (v: number) => v.toFixed(2) },
+      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
     })
 
     drawdownSeries.current = chart.current.addSeries(LineSeries, {
       color: '#f6465d',
       lineWidth: 1,
       crosshairMarkerVisible: false,
-      priceFormat: { type: 'custom', formatter: (v: number) => v.toFixed(2) },
+      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
       lineStyle: 2,
     })
 

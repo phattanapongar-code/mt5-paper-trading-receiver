@@ -44,12 +44,12 @@ export default function Performance() {
 
     equitySeries.current = chart.current.addSeries(LineSeries, {
       color: '#FCD535', lineWidth: 2, crosshairMarkerVisible: true,
-      priceFormat: { type: 'custom', formatter: (v: number) => v.toFixed(2) },
+      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
     })
 
     drawdownSeries.current = chart.current.addSeries(LineSeries, {
       color: '#f6465d', lineWidth: 1, crosshairMarkerVisible: false,
-      priceFormat: { type: 'custom', formatter: (v: number) => v.toFixed(2) },
+      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
       lineStyle: 2,
     })
 
@@ -161,7 +161,7 @@ export default function Performance() {
 
       <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-4">
         <h2 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">PnL Distribution{selectedBot ? ` — ${selectedBot.name}` : ''}</h2>
-        <PnLDistribution data={pnlByDay.map(([, v]) => v)} />
+        <PnLDistribution data={pnlByDay} />
       </div>
 
       {pnlByDay.length > 0 && <PnlCalendar data={pnlByDay} />}

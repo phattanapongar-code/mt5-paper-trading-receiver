@@ -64,7 +64,7 @@ export default function Trade() {
       const stopLoss = form.stop_loss ? parseFloat(form.stop_loss) : undefined
       const takeProfit = form.take_profit ? parseFloat(form.take_profit) : undefined
 
-      const lot = isNaN(form.lot) ? 0.01 : parseFloat(form.lot.toFixed(2))
+      const lot = parseFloat(form.lot.toFixed(2))
       await client.post(`/bots/${selectedBotId}/open`, {
         side: form.side,
         lot,

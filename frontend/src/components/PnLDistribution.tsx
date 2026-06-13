@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { createChart, HistogramSeries, type IChartApi, type ISeriesApi, type HistogramData } from 'lightweight-charts'
 
 interface PnLDistributionProps {
-  data: number[]
+  data: [number, number][]
   className?: string
 }
 
@@ -51,9 +51,9 @@ export default function PnLDistribution({ data: pnlData, className = '' }: PnLDi
     if (!pnlSeries.current) return
 
     const histData: HistogramData[] = pnlData
-      .filter((v) => v !== 0)
-      .map((v, i) => ({
-        time: (1711929600 + i * 60) as any,
+      .filter(([t, v]) => t > 0 && v !== 0)
+      .map(([t, v]) => ({
+        time: t as any,
         value: v,
         color: v >= 0 ? '#0ecb81' : '#f6465d',
       }))
@@ -63,7 +63,7 @@ export default function PnLDistribution({ data: pnlData, className = '' }: PnLDi
     }
   }, [pnlData])
 
-  if (!pnlData.length || pnlData.every((v) => v === 0)) {
+  if (!pnlData.length || pnlData.every(([, v]) => v === 0)) {
     return (
       <div className={`flex items-center justify-center ${className}`}>
         <div className="text-muted text-sm font-mono py-8">No trades yet</div>

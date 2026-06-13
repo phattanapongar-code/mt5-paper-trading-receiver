@@ -43,6 +43,7 @@ export default function BotDetail() {
       closed_trades: closed.length,
       wins: wins.length,
       losses: losses.length,
+      win_rate: closed.length > 0 ? wins.length / closed.length : 0,
       net_pnl: netPnl,
       max_drawdown_usd: maxDrawdown,
     }
@@ -54,7 +55,7 @@ export default function BotDetail() {
         client.get<BotState>(`/bots/${botId}/state`),
         client.get<Wallet>(`/bots/${botId}/wallet`),
         client.get<Trade[]>(`/bots/${botId}/trades`, { params: { limit: 20 } }),
-        client.get<BotSignalLog[]>(`/bots/${botId}/signals?limit=50`),
+        client.get<BotSignalLog[]>(`/bots/${botId}/signals`, { params: { limit: 50 } }),
         client.get<BotCosts>(`/bots/${botId}/costs`).catch(() => null),
       ])
       setState(stateRes.data)
