@@ -87,7 +87,6 @@ MT5 Sender → /price endpoint
 - `app/order_blocks.py` — Strong Order Block detection
 - `app/market_structure.py` — Swing points, BOS detection
 - `app/indicators.py` — Indicators (SMA, ATR, trend detection)
-- `app/stats.py` — PnL, equity curve, win rate (backed by bot_positions)
 - `app/replay.py` — Historical replay preview
 - `app/alert.py` — Telegram AlertEngine (dedicated event loop thread)
 

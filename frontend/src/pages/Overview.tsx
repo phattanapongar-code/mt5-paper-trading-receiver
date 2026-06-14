@@ -14,9 +14,10 @@ interface HealthWithTick {
 import EquityChart from '../components/EquityChart'
 
 export default function Overview() {
-  const { selectedBot, allBots } = useBotContext()
+  const { selectedBot, allBots, symbol } = useBotContext()
   const [health, setHealth] = useState<HealthWithTick | null>(null)
   const [trades, setTrades] = useState<Trade[]>([])
+  const [candles, setCandles] = useState<Record<string, any>[]>([])
   const [compare, setCompare] = useState<CompareBot[]>([])
   const [botState, setBotState] = useState<BotState | null>(null)
   const [wallet, setWallet] = useState<Wallet | null>(null)
@@ -29,14 +30,16 @@ export default function Overview() {
   const fetchData = useCallback(async () => {
     setRefreshing(true)
     try {
-      const [healthRes, tradesRes, compareRes] = await Promise.all([
+      const [healthRes, tradesRes, compareRes, candlesRes] = await Promise.all([
         fetch('/health').then((r) => r.json() as Promise<HealthWithTick>),
-        client.get<Trade[]>('/trades', { params: { limit: 12 } }),
+        client.get<Trade[]>('/trades', { params: { limit: 12, symbol: selectedBot?.symbol || symbol } }),
         client.get<CompareBot[]>('/compare'),
+        client.get<Record<string, any>[]>('/candles/M1', { params: { limit: 1, symbol: selectedBot?.symbol || symbol } }),
       ])
       setHealth(healthRes)
       setTrades(tradesRes.data)
       setCompare(compareRes.data)
+      setCandles(candlesRes.data)
 
       if (selectedBot) {
         const [bs, w] = await Promise.all([
@@ -55,7 +58,7 @@ export default function Overview() {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [selectedBot, allBots])
+  }, [selectedBot, allBots, symbol])
 
   useEffect(() => {
     fetchData()
@@ -86,6 +89,8 @@ export default function Overview() {
 
   const isBotLive = botState?.runtime?.updated_at != null && (Date.now() / 1000 - botState.runtime.updated_at < 10)
   const tick = health?.latest_tick
+  const currentCandle = candles[0]
+  const currentPrice = currentCandle ? { bid: currentCandle.close, ask: currentCandle.close, spread: 0, seq: 0 } : tick
   const enabledBots = allBots.filter((b) => b.enabled)
 
   // Fleet aggregates
@@ -130,10 +135,10 @@ export default function Overview() {
 
       {/* Market cards — always shown */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card label="Bid" value={tick?.bid?.toFixed(2) ?? '—'} accent="primary" />
-        <Card label="Ask" value={tick?.ask?.toFixed(2) ?? '—'} accent="primary" />
-        <Card label="Spread" value={tick?.spread?.toFixed(1) ?? '—'} accent="primary" />
-        <Card label="Last Seq" value={String(tick?.seq ?? '—')} accent="muted" />
+        <Card label="Bid" value={currentPrice?.bid?.toFixed(2) ?? '—'} accent="primary" />
+        <Card label="Ask" value={currentPrice?.ask?.toFixed(2) ?? '—'} accent="primary" />
+        <Card label="Spread" value={currentPrice?.spread?.toFixed(1) ?? '—'} accent="primary" />
+        <Card label="Last Seq" value={String(currentPrice?.seq ?? '—')} accent="muted" />
       </div>
 
       {/* Selected Bot: wallet cards */}

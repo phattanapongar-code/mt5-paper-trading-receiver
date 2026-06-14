@@ -473,9 +473,8 @@ class RuntimeHub:
     def _maybe_broadcast(self) -> None:
         import asyncio
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.create_task(self.broadcast({"event": "multibot_state", "runtime": self.status()}))
+            loop = asyncio.get_running_loop()
+            loop.create_task(self.broadcast({"event": "multibot_state", "runtime": self.status()}))
         except RuntimeError:
             pass
 

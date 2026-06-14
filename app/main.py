@@ -5,6 +5,7 @@ import base64
 import json
 import logging
 import time
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -21,11 +22,22 @@ from app.order_blocks import OrderBlockEngine
 from app.replay import ReplayEngine
 from app.multibot import service as multibot
 from app.multibot.runtime import process_tick_sync, hub
+from app.multibot.router import router as multibot_router
+from app.backtest.router import router as backtest_router
+from app.alert import alert_engine
 from app.trader_client import forward_health, forward_account, forward_positions, forward_open, forward_pending, forward_close, forward_close_all, forward_modify, forward_symbols_available, forward_symbols_get, forward_symbols_post, forward_history
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="MT5 Paper Trading Receiver", version="2.4.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan — startup and graceful shutdown."""
+    yield
+    await alert_engine.close()
+
+
+app = FastAPI(title="MT5 Paper Trading Receiver", version="2.5.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -627,19 +639,15 @@ async def trader_webhook(request: Request):
 
 
 # Multi-bot v1.1+ routes
-from app.multibot.router import router as multibot_router
 app.include_router(multibot_router)
 
 # Backtest router
-from app.backtest.router import router as backtest_router
 app.include_router(backtest_router)
 
 # Ensure at least one bot exists (seeds "Paper Trading" bot if DB is empty)
 multibot.ensure_default_bot()
 
 # ── Alert Config Endpoints ──
-
-from app.alert import alert_engine
 
 # Load saved alert config from DB into engine
 _token_row = storage.query_one("SELECT value FROM multibot_runtime_settings WHERE key='alert.bot_token'")
@@ -685,8 +693,3 @@ def save_alert_config(req: AlertConfigRequest) -> dict[str, Any]:
 async def test_alert() -> dict[str, Any]:
     ok = await alert_engine.test()
     return {"ok": ok, "message": "Test alert sent" if ok else "Alert sending failed"}
-
-
-@app.on_event("shutdown")
-async def shutdown() -> None:
-    await alert_engine.close()

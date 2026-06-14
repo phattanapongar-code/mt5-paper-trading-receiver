@@ -4,6 +4,5 @@ pydantic==2.11.4
 python-dotenv==1.1.0
 pytest==8.3.5
 aiohttp>=3.9
-flask==3.1.1
 httpx==0.28.1
 # MetaTrader5 is optional — only required if trader.py runs on this machine
