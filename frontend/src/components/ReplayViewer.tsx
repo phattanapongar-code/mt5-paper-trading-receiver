@@ -47,12 +47,11 @@ export default function ReplayViewer({ onRun }: Props) {
   }, [symbol])
 
   useEffect(() => { loadLatest() }, [loadLatest])
-
   const run = useCallback(async () => {
     setRunning(true)
     try {
-      await client.post('/replay/run', { params: { symbol: symbol } })
-      const latestRes = await client.get<ReplayRun>('/replay/latest', { params: { symbol: symbol } })
+      await client.post('/replay/run', {}, { params: { symbol } })
+      const latestRes = await client.get<ReplayRun>('/replay/latest', { params: { symbol } })
       setLatest(latestRes.data)
       onRun?.()
     } catch {

@@ -399,6 +399,18 @@ export interface TraderSymbolsResponse {
   symbols: string[]
 }
 
+export interface TraderSymbolInfo {
+  symbol: string
+  description: string
+  digits: number
+  volume_min: number
+  volume_max: number
+  volume_step: number
+  point: number
+  contract_size: number
+}
+
+
 export interface HistoryStatus {
   symbol: string
   closed_candles: Record<string, number>

@@ -5,6 +5,7 @@ import { useWebSocket } from '../api/ws'
 import { useBotContext } from '../context/BotContext'
 import LoadingSpinner from '../components/LoadingSpinner'
 import type { Trade, CompareBot, BotState, Wallet } from '../types/api'
+import { useMarketStore } from '../stores/useMarketStore'
 
 interface HealthWithTick {
   ok: boolean; sender_online: boolean; websocket_clients: number
@@ -62,7 +63,7 @@ export default function Overview() {
 
   useEffect(() => {
     fetchData()
-    const interval = setInterval(fetchData, 3000)
+    const interval = setInterval(fetchData, 5000)
     return () => clearInterval(interval)
   }, [fetchData])
 
@@ -76,7 +77,7 @@ export default function Overview() {
       } : prev)
     }
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(fetchData, 500)
+    debounceRef.current = setTimeout(fetchData, 5000)
   })
 
   if (loading && !health) {
@@ -88,9 +89,10 @@ export default function Overview() {
   }
 
   const isBotLive = botState?.runtime?.updated_at != null && (Date.now() / 1000 - botState.runtime.updated_at < 10)
-  const tick = health?.latest_tick
+  const storeTick = useMarketStore((state) => state.ticks[(selectedBot?.symbol || symbol).toUpperCase()])
+  const tick = storeTick || health?.latest_tick
   const currentCandle = candles[0]
-  const currentPrice = currentCandle ? { bid: currentCandle.close, ask: currentCandle.close, spread: 0, seq: 0 } : tick
+  const currentPrice = tick || (currentCandle ? { bid: currentCandle.close, ask: currentCandle.close, spread: 0, seq: 0 } : null)
   const enabledBots = allBots.filter((b) => b.enabled)
 
   // Fleet aggregates
@@ -135,10 +137,10 @@ export default function Overview() {
 
       {/* Market cards — always shown */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card label="Bid" value={currentPrice?.bid?.toFixed(2) ?? '—'} accent="primary" />
-        <Card label="Ask" value={currentPrice?.ask?.toFixed(2) ?? '—'} accent="primary" />
-        <Card label="Spread" value={currentPrice?.spread?.toFixed(1) ?? '—'} accent="primary" />
-        <Card label="Last Seq" value={String(currentPrice?.seq ?? '—')} accent="muted" />
+        <PriceCard label="Bid" value={currentPrice?.bid?.toFixed(2) ?? '—'} numericValue={currentPrice?.bid} accent="primary" />
+        <PriceCard label="Ask" value={currentPrice?.ask?.toFixed(2) ?? '—'} numericValue={currentPrice?.ask} accent="primary" />
+        <PriceCard label="Spread" value={currentPrice?.spread?.toFixed(1) ?? '—'} numericValue={currentPrice?.spread} accent="primary" />
+        <PriceCard label="Last Seq" value={String(currentPrice?.seq ?? '—')} accent="muted" />
       </div>
 
       {/* Selected Bot: wallet cards */}
@@ -302,6 +304,46 @@ function Card({ label, value, accent }: { label: string; value: string; accent: 
   }
   return (
     <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-4">
+      <p className="text-xs text-muted mb-1">{label}</p>
+      <p className={`font-mono text-lg font-semibold ${accentMap[accent]}`}>{value}</p>
+    </div>
+  )
+}
+
+function PriceCard({ label, value, numericValue, accent }: { 
+  label: string; 
+  value: string; 
+  numericValue?: number;
+  accent: 'primary' | 'trading-up' | 'trading-down' | 'muted' 
+}) {
+  const [flashClass, setFlashClass] = useState('')
+  const prevValueRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (numericValue === undefined || numericValue === null) return
+    const prev = prevValueRef.current
+    if (prev !== null && prev !== numericValue) {
+      if (numericValue > prev) {
+        setFlashClass('animate-flash-up')
+      } else if (numericValue < prev) {
+        setFlashClass('animate-flash-down')
+      }
+      const timer = setTimeout(() => setFlashClass(''), 500)
+      prevValueRef.current = numericValue
+      return () => clearTimeout(timer)
+    }
+    prevValueRef.current = numericValue
+  }, [numericValue])
+
+  const accentMap = {
+    primary: 'border-primary/30 text-primary',
+    'trading-up': 'border-trading-up/30 text-trading-up',
+    'trading-down': 'border-trading-down/30 text-trading-down',
+    muted: 'border-hairline-on-dark text-muted',
+  }
+
+  return (
+    <div className={`bg-surface-card-dark border border-hairline-on-dark rounded-lg p-4 transition-all duration-300 ${flashClass}`}>
       <p className="text-xs text-muted mb-1">{label}</p>
       <p className={`font-mono text-lg font-semibold ${accentMap[accent]}`}>{value}</p>
     </div>

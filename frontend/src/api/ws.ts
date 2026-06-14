@@ -1,104 +1,118 @@
-import React, { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef } from 'react'
 import { hasAuth } from './client'
-import { useBotContext } from '../context/BotContext'
+import { useMarketStore } from '../stores/useMarketStore'
 
-type MessageHandler = (data: unknown) => void
-type HandlersMap = Record<string, (data: any) => void>
+type MessageHandler = (data: any) => void
 
-// Overload: classic single callback
+// Module-level WebSocket singleton and listener registry
+let globalWs: WebSocket | null = null
+let retryTimer: ReturnType<typeof setTimeout> | null = null
+let retryCount = 0
+const listeners = new Set<MessageHandler>()
+
+function connectGlobal() {
+  if (globalWs || !hasAuth()) return
+
+  if (retryTimer) {
+    clearTimeout(retryTimer)
+    retryTimer = null
+  }
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const host = window.location.host
+  const url = `${protocol}//${host}/ws/ticks`
+
+  const ws = new WebSocket(url)
+  globalWs = ws
+
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data)
+      
+      // 1. Sync real-time ticks to global Zustand store
+      if (data?.tick?.symbol) {
+        const t = data.tick
+        useMarketStore.getState().setTick(t.symbol, {
+          symbol: t.symbol,
+          bid: t.bid,
+          ask: t.ask,
+          spread: t.spread,
+          seq: t.seq,
+          timestamp: t.timestamp,
+          mid: t.mid ?? ((t.bid + t.ask) / 2)
+        })
+      }
+
+      // 2. Broadcast to all active page/component listeners
+      listeners.forEach((listener) => {
+        try {
+          listener(data)
+        } catch (err) {
+          console.error('WS Listener Error:', err)
+        }
+      })
+    } catch {
+      // ignore parse errors
+    }
+  }
+
+  ws.onopen = () => {
+    retryCount = 0
+    useMarketStore.getState().setConnected(true)
+  }
+
+  ws.onclose = () => {
+    globalWs = null
+    useMarketStore.getState().setConnected(false)
+    const delay = Math.min(3000 * Math.pow(2, retryCount), 30000)
+    retryCount++
+    retryTimer = setTimeout(connectGlobal, delay)
+  }
+
+  ws.onerror = () => {
+    ws.close()
+  }
+}
+
+function disconnectGlobal() {
+  if (globalWs) {
+    if (globalWs.readyState === WebSocket.OPEN || globalWs.readyState === WebSocket.CONNECTING) {
+      globalWs.close()
+    }
+    globalWs = null
+  }
+  if (retryTimer) {
+    clearTimeout(retryTimer)
+    retryTimer = null
+  }
+  useMarketStore.getState().setConnected(false)
+}
+
 export function useWebSocket(
   path: string,
-  onMessage: MessageHandler,
-  enabled?: boolean,
-): { wsRef: React.RefObject<WebSocket | null>; selectedBotId: number | null }
-
-// Overload: typed handlers by message type
-export function useWebSocket(
-  path: string,
-  handlers: HandlersMap,
-  enabled?: boolean,
-): { wsRef: React.RefObject<WebSocket | null>; selectedBotId: number | null }
-
-// Implementation
-export function useWebSocket(
-  path: string,
-  handler: MessageHandler | HandlersMap,
-  enabled = true,
+  handler: MessageHandler,
+  enabled = true
 ) {
-  const wsRef = useRef<WebSocket | null>(null)
   const handlerRef = useRef(handler)
-  const intentionalCloseRef = useRef(false)
-  const retryCountRef = useRef(0)
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const { selectedBot } = useBotContext()
   handlerRef.current = handler
 
-  const connect = useCallback(() => {
-    if (!enabled || !hasAuth()) return
-
-    if (retryTimerRef.current) {
-      clearTimeout(retryTimerRef.current)
-      retryTimerRef.current = null
-    }
-
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const host = window.location.host
-    const url = `${protocol}//${host}${path}`
-
-    const ws = new WebSocket(url)
-    wsRef.current = ws
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        const h = handlerRef.current
-        if (typeof h === 'function') {
-          h(data)
-        } else if (data?.type && h[data.type]) {
-          h[data.type](data)
-        }
-      } catch {
-        // ignore parse errors
-      }
-    }
-
-    ws.onopen = () => {
-      retryCountRef.current = 0
-    }
-
-    ws.onclose = () => {
-      if (!intentionalCloseRef.current) {
-        wsRef.current = null
-        const attempt = retryCountRef.current
-        const delay = Math.min(3000 * Math.pow(2, attempt), 30000)
-        retryCountRef.current = attempt + 1
-        retryTimerRef.current = setTimeout(connect, delay)
-      }
-    }
-
-    ws.onerror = () => {
-      ws.close()
-    }
-  }, [path, enabled])
-
   useEffect(() => {
-    intentionalCloseRef.current = false
-    connect()
+    if (!enabled) return
+
+    const listener = (data: any) => {
+      handlerRef.current(data)
+    }
+
+    listeners.add(listener)
+    connectGlobal()
+
     return () => {
-      intentionalCloseRef.current = true
-      if (retryTimerRef.current) {
-        clearTimeout(retryTimerRef.current)
-        retryTimerRef.current = null
-      }
-      const ws = wsRef.current
-      if (ws) {
-        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-          ws.close()
-        }
-        wsRef.current = null
+      listeners.delete(listener)
+      if (listeners.size === 0) {
+        disconnectGlobal()
       }
     }
-  }, [connect])
+  }, [enabled])
 
-  return { wsRef, selectedBotId: selectedBot?.id ?? null }
+  return { wsRef: { current: globalWs }, selectedBotId: null }
 }

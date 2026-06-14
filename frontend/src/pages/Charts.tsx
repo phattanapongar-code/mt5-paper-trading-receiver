@@ -101,7 +101,7 @@ export default function Charts() {
   dateRangeRef.current = dateRange
 
   const wsHandler = useCallback((msg: any) => {
-    if (msg?.tick?.mid && candleSeriesRef.current && lastCandleRef.current) {
+    if (msg?.tick?.symbol === symbol && msg?.tick?.mid && candleSeriesRef.current && lastCandleRef.current) {
       const lc = lastCandleRef.current
       candleSeriesRef.current.update({
         time: lc.time,
@@ -113,8 +113,8 @@ export default function Charts() {
     if (debounceWsRef.current) clearTimeout(debounceWsRef.current)
     debounceWsRef.current = setTimeout(() => {
       fetchData(timeframeRef.current, dateRangeRef.current)
-    }, 2000)
-  }, [fetchData])
+    }, 8000)
+  }, [fetchData, symbol])
 
   const timeframeRef = useRef(timeframe)
   timeframeRef.current = timeframe
@@ -122,7 +122,7 @@ export default function Charts() {
 
   useEffect(() => {
     fetchData(timeframe, dateRange)
-    const interval = setInterval(() => fetchData(timeframe, dateRange), 5000)
+    const interval = setInterval(() => fetchData(timeframe, dateRange), 10000)
     return () => clearInterval(interval)
   }, [timeframe, dateRange, fetchData])
 
