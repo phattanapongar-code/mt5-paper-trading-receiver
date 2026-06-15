@@ -27,6 +27,7 @@ export default function Overview() {
   const navigate = useNavigate()
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const storeTick = useMarketStore((state) => state.ticks[(selectedBot?.symbol || symbol).toUpperCase()])
 
   const fetchData = useCallback(async () => {
     setRefreshing(true)
@@ -89,7 +90,6 @@ export default function Overview() {
   }
 
   const isBotLive = botState?.runtime?.updated_at != null && (Date.now() / 1000 - botState.runtime.updated_at < 10)
-  const storeTick = useMarketStore((state) => state.ticks[(selectedBot?.symbol || symbol).toUpperCase()])
   const tick = storeTick || health?.latest_tick
   const currentCandle = candles[0]
   const currentPrice = tick || (currentCandle ? { bid: currentCandle.close, ask: currentCandle.close, spread: 0, seq: 0 } : null)
