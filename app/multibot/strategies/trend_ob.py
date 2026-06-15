@@ -2,7 +2,24 @@ from __future__ import annotations
 
 from typing import Any
 
+from app import storage
 from app.multibot.runtime import _latest_ob, _m5_confirmed, _stable_ob_key, _trend
+
+TIMEFRAMES: dict[str, int] = {"M1": 60, "M5": 300, "M15": 900, "H1": 3600}
+
+
+def _ob_age_in_candles(symbol: str, timeframe: str, break_open_time: int) -> int | None:
+    """Return how many candles have passed since this OB's break_open_time."""
+    seconds = TIMEFRAMES.get(timeframe)
+    if not seconds:
+        return None
+    latest = storage.query_one(
+        "SELECT open_time FROM candles WHERE symbol=? AND timeframe=? AND is_closed=1 ORDER BY open_time DESC LIMIT 1",
+        (symbol, timeframe),
+    )
+    if not latest:
+        return None
+    return int((int(latest["open_time"]) - break_open_time) // seconds)
 
 
 def decide(conn, bot: dict[str, Any], tick: dict[str, Any], params: dict[str, Any], now: int) -> dict[str, Any] | None:
@@ -27,6 +44,12 @@ def decide(conn, bot: dict[str, Any], tick: dict[str, Any], params: dict[str, An
     if not ob:
         return None
 
+    # OB freshness filter: skip OBs older than max_age candles
+    max_age = int(params.get("ob_max_age_candles", 20))
+    ob_age = _ob_age_in_candles(bot["symbol"], bot["timeframe"], int(ob["break_open_time"]))
+    if ob_age is not None and ob_age > max_age:
+        return None
+
     side = str(ob["side"]).lower()
     if (side == "bullish" and trend != "BULLISH") or (side == "bearish" and trend != "BEARISH"):
         return None
@@ -38,7 +61,8 @@ def decide(conn, bot: dict[str, Any], tick: dict[str, Any], params: dict[str, An
         return None
 
     ob_key = _stable_ob_key(ob)
-    entry = (low + high) / 2
+    # Entry at the OB boundary closest to current price for better fill probability
+    entry = high if side == "bullish" else low
     ob_range = high - low
     buffer = ob_range * float(params["sl_buffer_ratio"])
 

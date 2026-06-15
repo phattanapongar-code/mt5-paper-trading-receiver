@@ -96,7 +96,8 @@ def test_trail_stop_buy_not_enabled(tmp_path):
         _setup_minimal_bot(conn)
         pos = dict(conn.execute("SELECT * FROM bot_positions ORDER BY id DESC LIMIT 1").fetchone())
         params = {"trailing_enabled": False}
-        _trail_stop(conn, pos, 2310.0, 2310.5, params, 100)
+        # bid=2305 is below 1R (2310) so breakeven doesn't trigger; trailing disabled → no change
+        _trail_stop(conn, pos, 2305.0, 2305.5, params, 100)
         updated = dict(conn.execute("SELECT * FROM bot_positions WHERE id=?", (pos["id"],)).fetchone())
         assert updated["stop_loss"] == pos["stop_loss"]
 

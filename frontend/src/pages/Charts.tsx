@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { createChart, ColorType, createUpDownMarkers, type IChartApi, type ISeriesApi, type CandlestickData, type LineData, type UTCTimestamp, CandlestickSeries, LineSeries } from 'lightweight-charts'
+import { createChart, ColorType, createUpDownMarkers, type IChartApi, type ISeriesApi, type CandlestickData, type LineData, type HistogramData, type UTCTimestamp, CandlestickSeries, LineSeries, HistogramSeries } from 'lightweight-charts'
 import client from '../api/client'
 import { useWebSocket } from '../api/ws'
 import { useBotContext } from '../context/BotContext'
 import { useDrawingTools } from '../components/DrawingTools'
 import LoadingSpinner from '../components/LoadingSpinner'
-import { FiEdit3, FiChevronDown, FiChevronRight, FiArrowUpRight, FiMinus, FiSquare, FiArrowRight, FiX, FiArrowUp, FiArrowDown, FiStar } from 'react-icons/fi'
+import { FiEdit3, FiChevronDown, FiChevronRight, FiArrowUpRight, FiMinus, FiSquare, FiArrowRight, FiX } from 'react-icons/fi'
 import type { Candle, Indicators, OrderBlock, MarketStructureState, Trade } from '../types/api'
 
 interface CandlePendingOrder {
@@ -49,6 +49,10 @@ export default function Charts() {
   const [showDrawTools, setShowDrawTools] = useState(false)
   const [trades, setTrades] = useState<Trade[]>([])
   const [candleSeries, setCandleSeries] = useState<ISeriesApi<'Candlestick'> | null>(null)
+  const [heikinAshi, setHeikinAshi] = useState(false)
+  const [showVolume, setShowVolume] = useState(true)
+  const [showGaps, setShowGaps] = useState(true)
+  const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null)
   const debounceWsRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastCandleRef = useRef<{ time: UTCTimestamp; high: number; low: number } | null>(null)
 
@@ -192,12 +196,22 @@ export default function Charts() {
 
 
 
+    const volumeHist = chart.addSeries(HistogramSeries, {
+      priceScaleId: 'volume',
+      priceFormat: { type: 'volume' },
+      color: '#26a69a',
+    })
+    chart.priceScale('volume').applyOptions({
+      scaleMargins: { top: 0.8, bottom: 0 },
+    })
+
     setChartApi(chart)
     candleSeriesRef.current = candlesSeries
     setCandleSeries(candlesSeries)
     ma60SeriesRef.current = ma60
     ma80SeriesRef.current = ma80
     ma300SeriesRef.current = ma300
+    volumeSeriesRef.current = volumeHist
 
     const handleResize = () => {
       if (chartRef.current) {
@@ -212,6 +226,25 @@ export default function Charts() {
       chart.remove()
     }
   }, [])
+
+  function toHeikinAshi(data: CandlestickData[]): CandlestickData[] {
+    if (!data.length) return data
+    const ha: CandlestickData[] = [{ ...data[0] }]
+    for (let i = 1; i < data.length; i++) {
+      const prev = ha[i - 1]
+      const c = data[i]
+      const haClose = (c.open + c.high + c.low + c.close) / 4
+      const haOpen = (prev.open + prev.close) / 2
+      ha.push({
+        time: c.time,
+        open: haOpen,
+        high: Math.max(c.high, haOpen, haClose),
+        low: Math.min(c.low, haOpen, haClose),
+        close: haClose,
+      })
+    }
+    return ha
+  }
 
   function computeSma(data: CandlestickData[], period: number): LineData[] {
     return data.map((c, i) => {
@@ -237,10 +270,12 @@ export default function Charts() {
       }))
       .sort((a, b) => Number(a.time) - Number(b.time))
 
-    series.setData(candleData)
+    const displayData = heikinAshi ? toHeikinAshi(candleData) : candleData
+
+    series.setData(displayData)
 
     if (candleData.length > 0) {
-      const last = candleData[candleData.length - 1]
+      const last = displayData[displayData.length - 1]
       lastCandleRef.current = { time: last.time as UTCTimestamp, high: last.high, low: last.low }
     }
 
@@ -252,6 +287,23 @@ export default function Charts() {
     }
     if (ma300SeriesRef.current) {
       ma300SeriesRef.current.setData(computeSma(candleData, 300))
+    }
+
+    // Volume bars
+    if (volumeSeriesRef.current) {
+      const volData: HistogramData[] = candles
+        .filter(c => c.open_time && c.tick_volume != null)
+        .map(c => ({
+          time: c.open_time as UTCTimestamp,
+          value: c.tick_volume,
+          color: c.close >= c.open ? '#26a69a' : '#ef5350',
+        }))
+        .sort((a, b) => Number(a.time) - Number(b.time))
+      if (showVolume) {
+        volumeSeriesRef.current.setData(volData)
+      } else {
+        volumeSeriesRef.current.setData([])
+      }
     }
 
     // Remove old price lines
@@ -287,6 +339,20 @@ export default function Charts() {
       addPriceLine({ price: pending.take_profit, color: '#0ecb81', lineStyle: 1, lineWidth: 1, axisLabelVisible: true, title: 'PEND TP' })
     }
 
+    // Gap detection: price lines at candles with gap from previous close
+    if (showGaps && candleData.length > 1) {
+      for (let i = 1; i < candleData.length; i++) {
+        const prev = candleData[i - 1]
+        const curr = candleData[i]
+        const gapPips = Math.abs(curr.open - prev.close) * 10_000
+        if (gapPips >= 5) {
+          const gapColor = curr.open > prev.close ? '#26a69a' : '#ef5350'
+          addPriceLine({ price: curr.open, color: gapColor, lineStyle: 2, lineWidth: 1, axisLabelVisible: true, title: `GAP ${gapPips.toFixed(0)}pt` })
+          break // only show latest gap to reduce clutter
+        }
+      }
+    }
+
     // Swing point + trade markers
     const markers: { time: UTCTimestamp; value: number; sign: number }[] = []
     if (structure?.latest_swing_high?.pivot_open_time) {
@@ -307,7 +373,7 @@ export default function Charts() {
     if (markers.length && markersPluginRef.current) {
       markersPluginRef.current.setMarkers(markers)
     }
-  }, [candles, indicators, obs, structure, pending, trades, chartApi])
+  }, [candles, indicators, obs, structure, pending, trades, chartApi, heikinAshi, showVolume, showGaps])
 
   return (
     <div className="p-6 space-y-4">
@@ -341,21 +407,27 @@ export default function Charts() {
             {refreshing && <LoadingSpinner size={14} />}
           </div>
           <div className="h-5 w-px bg-hairline-on-dark mx-1" />
-          <div className="flex gap-1">
+          <select
+            value={dateRange}
+            onChange={(e) => setDateRange(e.target.value as DR)}
+            className="px-2 py-1.5 text-xs font-mono bg-surface-card-dark text-muted border border-hairline-on-dark rounded-md focus:outline-none focus:border-primary cursor-pointer"
+          >
             {DATE_RANGES.map((dr) => (
-              <button
-                key={dr.label}
-                onClick={() => setDateRange(dr.label)}
-                className={`px-2 py-1.5 text-xs font-mono rounded-md transition-colors cursor-pointer ${
-                  dateRange === dr.label
-                    ? 'bg-primary/10 text-primary border border-primary/50'
-                    : 'bg-surface-card-dark text-muted border border-hairline-on-dark hover:border-surface-elevated-dark'
-                }`}
-              >
-                {dr.label}
-              </button>
+              <option key={dr.label} value={dr.label}>{dr.label}</option>
             ))}
-          </div>
+          </select>
+          <button onClick={() => setHeikinAshi(!heikinAshi)}
+            className={`px-2 py-1.5 text-xs font-mono rounded-md border cursor-pointer transition-colors ${heikinAshi ? 'bg-primary/10 text-primary border-primary/50' : 'bg-surface-card-dark text-muted border-hairline-on-dark hover:border-surface-elevated-dark'}`}>
+            HA
+          </button>
+          <button onClick={() => setShowVolume(!showVolume)}
+            className={`px-2 py-1.5 text-xs rounded-md border cursor-pointer transition-colors ${showVolume ? 'bg-primary/10 text-primary border-primary/50' : 'bg-surface-card-dark text-muted border-hairline-on-dark hover:border-surface-elevated-dark'}`}>
+            Vol
+          </button>
+          <button onClick={() => setShowGaps(!showGaps)}
+            className={`px-2 py-1.5 text-xs rounded-md border cursor-pointer transition-colors ${showGaps ? 'bg-primary/10 text-primary border-primary/50' : 'bg-surface-card-dark text-muted border-hairline-on-dark hover:border-surface-elevated-dark'}`}>
+            Gaps
+          </button>
           <button
             onClick={() => setShowDrawTools(!showDrawTools)}
             className={`px-2.5 py-1.5 text-xs rounded-md border cursor-pointer transition-colors ${
@@ -411,37 +483,35 @@ export default function Charts() {
         </svg>
       </div>
 
-      {indicators && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <IndiCard label="RSI14" value={indicators.rsi14?.toFixed(1) ?? '—'} color={indicators.rsi14 != null ? (indicators.rsi14 > 70 ? '#f6465d' : indicators.rsi14 < 30 ? '#0ecb81' : '#8c6cd8') : '#eaecef'} />
-          <IndiCard label="MACD" value={indicators.macd?.toFixed(2) ?? '—'} color="#FCD535" />
-          <IndiCard label="ATR14" value={indicators.atr14?.toFixed(2) ?? '—'} color="#eaecef" />
-          <IndiCard label="BB Mid" value={indicators.bb_middle?.toFixed(2) ?? '—'} color="#FCD535" />
-          <IndiCard
-            label="Trend"
-            value={indicators.trend ?? '—'}
-            color={indicators.trend === 'BULLISH' ? '#0ecb81' : indicators.trend === 'BEARISH' ? '#f6465d' : '#eaecef'}
-          />
-        </div>
-      )}
-
-      {obs.length > 0 && (
-        <div className="flex items-center gap-2 text-xs text-muted">
-          <span>{obs.length} active OBs</span>
-          <span className="text-trading-up inline-flex items-center gap-0.5"><FiArrowUp size={12} /> {obs.filter(o => o.side === 'buy').length}</span>
-          <span className="text-trading-down inline-flex items-center gap-0.5"><FiArrowDown size={12} /> {obs.filter(o => o.side === 'sell').length}</span>
-          <span className="text-primary inline-flex items-center gap-0.5"><FiStar size={12} fill="currentColor" /> {obs.filter(o => o.is_strong).length} strong</span>
-        </div>
-      )}
+      <div className="flex items-center gap-3 flex-wrap text-xs">
+        {indicators && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <IndicatorChip label="RSI14" value={indicators.rsi14?.toFixed(1) ?? '—'} color={indicators.rsi14 != null ? (indicators.rsi14 > 70 ? '#f6465d' : indicators.rsi14 < 30 ? '#0ecb81' : '#8c6cd8') : '#eaecef'} />
+            <IndicatorChip label="MACD" value={indicators.macd?.toFixed(2) ?? '—'} color="#FCD535" />
+            <IndicatorChip label="ATR14" value={indicators.atr14?.toFixed(2) ?? '—'} color="#eaecef" />
+            <IndicatorChip label="BB Mid" value={indicators.bb_middle?.toFixed(2) ?? '—'} color="#FCD535" />
+            <IndicatorChip label="Trend" value={indicators.trend ?? '—'} color={indicators.trend === 'BULLISH' ? '#0ecb81' : indicators.trend === 'BEARISH' ? '#f6465d' : '#eaecef'} />
+            <span className="w-px h-3 bg-hairline-on-dark mx-1" />
+          </div>
+        )}
+        {obs.length > 0 && (
+          <div className="flex items-center gap-2 text-muted">
+            <span>{obs.length} OB</span>
+            <span className="text-trading-up">{obs.filter(o => o.side === 'buy').length}▲</span>
+            <span className="text-trading-down">{obs.filter(o => o.side === 'sell').length}▼</span>
+            <span className="text-primary">{obs.filter(o => o.is_strong).length}★</span>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
 
-function IndiCard({ label, value, color }: { label: string; value: string; color: string }) {
+function IndicatorChip({ label, value, color }: { label: string; value: string; color: string }) {
   return (
-    <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-3">
-      <p className="text-xs text-muted mb-0.5">{label}</p>
-      <p className="font-mono text-sm font-semibold" style={{ color }}>{value}</p>
-    </div>
+    <span className="font-mono">
+      <span className="text-muted">{label}: </span>
+      <span className="font-semibold" style={{ color }}>{value}</span>
+    </span>
   )
 }

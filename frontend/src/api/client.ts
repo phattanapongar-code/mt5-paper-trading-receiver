@@ -14,7 +14,7 @@ function cacheKey(url: string, params: Record<string, unknown> | undefined): str
 
 const client = axios.create({
   baseURL: '/api',
-  timeout: 10000,
+  timeout: 60000,
   headers: { 'Content-Type': 'application/json' },
 })
 

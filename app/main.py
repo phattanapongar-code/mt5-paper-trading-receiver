@@ -145,12 +145,25 @@ async def receive_price(payload: TickPayload) -> dict[str, Any]:
     )
 
     def tick_pipeline():
-        candle_res = candles.update_tick(payload.symbol, payload.bid, payload.ask, now)
-        closed_tfs = [c["timeframe"] for c in candle_res["closed"]]
+        closed_tfs: list[str] = []
+        candle_result = candles.update_tick(payload.symbol, payload.bid, payload.ask, now)
+        closed_tfs.extend(c["timeframe"] for c in candle_result["closed"])
+
+        # If MT5 sent a closed M1 candle, ingest it for exact OHLC
+        if payload.candle:
+            c = payload.candle
+            rebuild_result = candles.ingest_m1_candle(
+                payload.symbol, c.open_time, c.open, c.high, c.low, c.close, c.tick_volume,
+            )
+            candle_result["ingested_m1"] = 1
+            candle_result["rebuilt_from_m1"] = rebuild_result
+            # Rebuild closes higher-timeframe candles, so refresh structure/OB
+            closed_tfs.extend(tf for tf in ["M1", "M5", "M15", "H1"])
+
         struct_res = structure.refresh_timeframes(payload.symbol, closed_tfs) if closed_tfs else {}
         ob_res = order_blocks.refresh_timeframes(payload.symbol, closed_tfs) if closed_tfs else {}
         bot_result = process_tick_sync(latest_tick)
-        return candle_res, struct_res, ob_res, bot_result
+        return candle_result, struct_res, ob_res, bot_result
 
     try:
         candle_result, structure_refresh, order_block_refresh, multibot_result = await asyncio.to_thread(tick_pipeline)

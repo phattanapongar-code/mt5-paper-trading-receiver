@@ -292,12 +292,26 @@ def open_position(bot_id: int, side: str, lot: float, stop_loss: float | None, t
     if wallet is None:
         return None
     params = _decode(bot.get("parameters_json", "{}"))
+    sym = str(bot.get("symbol", "XAUUSD"))
     sigma = float(params.get("slippage_sigma", 0.15))
     max_slip = float(params.get("slippage_max_pips", 0.5))
-    pip_val = _pip_value(str(bot.get("symbol", "XAUUSD")))
+    pip_val = _pip_value(sym)
     slip_pips = _gaussian_slippage(sigma, max_slip)
     slip_pts = slip_pips * pip_val
-    raw_entry = tick["ask"] if side == "buy" else tick["bid"]
+
+    # Look up bid/ask for the bot's symbol (not from passed tick, which may be wrong symbol)
+    with storage.transaction() as conn:
+        tick_row = conn.execute(
+            "SELECT bid, ask FROM ticks WHERE symbol=? ORDER BY ts DESC LIMIT 1",
+            (sym,),
+        ).fetchone()
+        if tick_row:
+            bid = float(tick_row["bid"])
+            ask = float(tick_row["ask"])
+        else:
+            bid = float(tick.get("bid", 0))
+            ask = float(tick.get("ask", 0))
+        raw_entry = ask if side == "buy" else bid
     entry = _apply_entry_slippage(raw_entry, side, slip_pts)
     now = int(time.time())
     with storage.transaction() as conn:
@@ -309,7 +323,7 @@ def open_position(bot_id: int, side: str, lot: float, stop_loss: float | None, t
             INSERT INTO bot_positions(bot_id,wallet_id,symbol,side,lot,entry,stop_loss,take_profit,status,opened_at,updated_at,execution_detail)
             VALUES(?,?,?,?,?,?,?,?,'open',?,?,?)
             """,
-            (bot_id, wallet["id"], tick.get("symbol", "XAUUSD"), side, lot, entry, stop_loss, take_profit, now, now,
+            (bot_id, wallet["id"], sym, side, lot, entry, stop_loss, take_profit, now, now,
              json_text({"entry_slippage_pips": slip_pips, "fill_price_raw": raw_entry})),
         )
         return dict(conn.execute("SELECT *, exit_price AS \"exit\" FROM bot_positions WHERE id=?", (cur.lastrowid,)).fetchone())
@@ -326,19 +340,28 @@ def close_position(bot_id: int, tick: dict[str, Any], note: str = "manual_close"
         bot_row = conn.execute("SELECT parameters_json FROM bots WHERE id=?", (bot_id,)).fetchone()
         params = _decode(bot_row["parameters_json"] if bot_row else "{}")
 
-        # Get current bid/ask for spread cost
-        bid = float(tick.get("bid", 0))
-        ask = float(tick.get("ask", 0))
+        # Get current bid/ask for the position's symbol (not from passed tick, which may be wrong symbol)
+        sym = str(p.get("symbol", "XAUUSD"))
+        tick_row = conn.execute(
+            "SELECT bid, ask FROM ticks WHERE symbol=? ORDER BY ts DESC LIMIT 1",
+            (sym,),
+        ).fetchone()
+        if tick_row:
+            bid = float(tick_row["bid"])
+            ask = float(tick_row["ask"])
+        else:
+            bid = float(tick.get("bid", 0))
+            ask = float(tick.get("ask", 0))
         side = str(p["side"])
         contract_size = float(params.get("contract_size", settings.contract_size))
 
         # Compute exit slippage
         sigma = float(params.get("slippage_sigma", 0.15))
         max_slip = float(params.get("slippage_max_pips", 0.5))
-        pip_val = _pip_value(str(p.get("symbol", "XAUUSD")))
+        pip_val = _pip_value(sym)
         slip_pips = _gaussian_slippage(sigma, max_slip)
         slip_pts = slip_pips * pip_val
-        raw_exit = tick["bid"] if side == "buy" else tick["ask"]
+        raw_exit = bid if side == "buy" else ask
         exit_price = _apply_exit_slippage(raw_exit, side, slip_pts)
 
         direction = 1.0 if side == "buy" else -1.0

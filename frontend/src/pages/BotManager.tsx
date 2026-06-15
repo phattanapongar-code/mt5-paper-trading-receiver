@@ -6,10 +6,6 @@ import type { Profile, Bot, StrategyOption } from '../types/api'
 
 const STRATEGY_COLORS: Record<string, string> = {
   trend_ob: '#FCD535',
-  rsi_meanrev: '#0ecb81',
-  macd_cross: '#5e7cc4',
-  ma_cross: '#8c6cd8',
-  bb_breakout: '#f6465d',
 }
 import ProfileForm from '../components/ProfileForm'
 import BotForm from '../components/BotForm'

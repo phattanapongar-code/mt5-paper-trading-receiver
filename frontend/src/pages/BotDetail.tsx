@@ -4,7 +4,7 @@ import client from '../api/client'
 import { useToast } from '../components/Toast'
 import type { BotState, Wallet, Trade, BotSignalLog, BotStats, BotCosts } from '../types/api'
 
-type Tab = 'info' | 'signals' | 'edit' | 'costs'
+type Tab = 'info' | 'signals' | 'costs'
 
 export default function BotDetail() {
   const { botId } = useParams()
@@ -23,6 +23,7 @@ export default function BotDetail() {
   const [editTf, setEditTf] = useState('')
   const [cloneName, setCloneName] = useState('')
   const [showCloneModal, setShowCloneModal] = useState(false)
+  const [symbols, setSymbols] = useState<string[]>([])
 
   const botStats: BotStats = useMemo(() => {
     const closed = trades.filter(t => t.status === 'closed')
@@ -49,6 +50,11 @@ export default function BotDetail() {
     }
   }, [trades])
 
+  const parsedParams = useMemo(() => {
+    try { return JSON.parse(paramsText) as Record<string, any> }
+    catch { return {} as Record<string, any> }
+  }, [paramsText])
+
   const fetchData = useCallback(async () => {
     try {
       const [stateRes, walletRes, tradesRes, signalsRes, costsRes] = await Promise.all([
@@ -72,6 +78,9 @@ export default function BotDetail() {
 
   useEffect(() => {
     fetchData()
+    client.get<{ symbols: string[] }>('/symbols').then(res => {
+      if (res.data.symbols?.length) setSymbols(res.data.symbols)
+    }).catch(() => {})
     const interval = setInterval(fetchData, 3000)
     return () => clearInterval(interval)
   }, [fetchData])
@@ -255,8 +264,7 @@ export default function BotDetail() {
       )}
 
       <div className="flex gap-4 border-b border-hairline-on-dark">
-        <button onClick={() => setTab('info')} className={`pb-2 text-xs font-semibold uppercase tracking-wider cursor-pointer ${tab === 'info' ? 'text-primary border-b-2 border-primary' : 'text-muted'}`}>Info / Params</button>
-        <button onClick={() => setTab('edit')} className={`pb-2 text-xs font-semibold uppercase tracking-wider cursor-pointer ${tab === 'edit' ? 'text-primary border-b-2 border-primary' : 'text-muted'}`}>Edit</button>
+        <button onClick={() => setTab('info')} className={`pb-2 text-xs font-semibold uppercase tracking-wider cursor-pointer ${tab === 'info' ? 'text-primary border-b-2 border-primary' : 'text-muted'}`}>Info</button>
         <button onClick={() => setTab('signals')} className={`pb-2 text-xs font-semibold uppercase tracking-wider cursor-pointer ${tab === 'signals' ? 'text-primary border-b-2 border-primary' : 'text-muted'}`}>Signal Logs ({signals.length})</button>
         <button onClick={() => setTab('costs')} className={`pb-2 text-xs font-semibold uppercase tracking-wider cursor-pointer ${tab === 'costs' ? 'text-primary border-b-2 border-primary' : 'text-muted'}`}>Costs</button>
       </div>
@@ -264,10 +272,219 @@ export default function BotDetail() {
       {tab === 'info' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-4">
-            <h2 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Bot Parameters</h2>
-            <textarea value={paramsText} onChange={(e) => setParamsText(e.target.value)}
-              className="w-full h-64 bg-canvas-dark border border-surface-400 rounded text-xs font-mono text-body p-3 focus:outline-none focus:border-primary resize-none" />
-            <button onClick={saveParams} className="mt-2 px-3 py-1.5 text-xs bg-primary/10 text-primary border border-primary/50 rounded cursor-pointer">Save Params</button>
+            <h2 className="text-xs font-semibold text-muted uppercase tracking-wider mb-4">Bot Settings</h2>
+
+            <div className="grid grid-cols-3 gap-2 mb-4 pb-4 border-b border-hairline-on-dark">
+              <div>
+                <label className="block text-xs text-muted mb-1">Name</label>
+                <input value={editName} onChange={(e) => setEditName(e.target.value)}
+                  className="w-full px-2 py-1.5 bg-surface-elevated-dark border border-hairline-on-dark rounded text-sm text-body focus:outline-none focus:border-primary" />
+              </div>
+              <div>
+                <label className="block text-xs text-muted mb-1">Symbol</label>
+                <select value={editSymbol} onChange={(e) => setEditSymbol(e.target.value)}
+                  className="w-full px-2 py-1.5 bg-surface-elevated-dark border border-hairline-on-dark rounded text-sm text-body focus:outline-none focus:border-primary">
+                  {symbols.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-muted mb-1">Timeframe</label>
+                <select value={editTf} onChange={(e) => setEditTf(e.target.value)}
+                  className="w-full px-2 py-1.5 bg-surface-elevated-dark border border-hairline-on-dark rounded text-sm text-body focus:outline-none focus:border-primary">
+                  <option value="M1">M1</option>
+                  <option value="M5">M5</option>
+                  <option value="M15">M15</option>
+                  <option value="H1">H1</option>
+                </select>
+              </div>
+              <div className="col-span-3 flex justify-end">
+                <button onClick={saveEdit} className="px-3 py-1 text-xs rounded bg-primary/10 text-primary border border-primary/50 cursor-pointer hover:bg-primary/20">Save Changes</button>
+              </div>
+            </div>
+
+            <h2 className="text-xs font-semibold text-muted uppercase tracking-wider mb-4">Strategy Parameters</h2>
+
+            <div className="space-y-4">
+              {/* Risk Management */}
+              <div>
+                <p className="text-xs font-semibold text-body mb-2 border-b border-hairline-on-dark pb-1">Risk Management</p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="flex justify-between text-xs text-muted mb-1">
+                      <span>Risk Per Trade</span>
+                      <span className="font-mono text-body">{((parsedParams?.risk_percent ?? 0.01) * 100).toFixed(1)}%</span>
+                    </label>
+                    <input type="range" min="0.1" max="5" step="0.1" value={((parsedParams?.risk_percent ?? 0.01) * 100).toFixed(1)}
+                      onChange={(e) => {
+                        const p = { ...parsedParams }
+                        p.risk_percent = parseFloat(e.target.value) / 100
+                        setParamsText(JSON.stringify(p, null, 2))
+                      }}
+                      className="w-full accent-primary cursor-pointer" />
+                  </div>
+                  <div>
+                    <label className="flex justify-between text-xs text-muted mb-1">
+                      <span>Daily Loss Limit</span>
+                      <span className="font-mono text-body">{((parsedParams?.daily_loss_limit_percent ?? 0.03) * 100).toFixed(0)}%</span>
+                    </label>
+                    <input type="range" min="1" max="10" step="1" value={((parsedParams?.daily_loss_limit_percent ?? 0.03) * 100).toFixed(0)}
+                      onChange={(e) => {
+                        const p = { ...parsedParams }
+                        p.daily_loss_limit_percent = parseFloat(e.target.value) / 100
+                        setParamsText(JSON.stringify(p, null, 2))
+                      }}
+                      className="w-full accent-primary cursor-pointer" />
+                  </div>
+                  <div>
+                    <label className="flex justify-between text-xs text-muted mb-1">
+                      <span>Max Consecutive Losses</span>
+                      <span className="font-mono text-body">{parsedParams?.max_consecutive_losses ?? 3}</span>
+                    </label>
+                    <input type="range" min="1" max="10" step="1" value={parsedParams?.max_consecutive_losses ?? 3}
+                      onChange={(e) => {
+                        const p = { ...parsedParams }
+                        p.max_consecutive_losses = parseInt(e.target.value)
+                        setParamsText(JSON.stringify(p, null, 2))
+                      }}
+                      className="w-full accent-primary cursor-pointer" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Order Block */}
+              <div>
+                <p className="text-xs font-semibold text-body mb-2 border-b border-hairline-on-dark pb-1">Order Block</p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="flex justify-between text-xs text-muted mb-1">
+                      <span>OB Strong Score</span>
+                      <span className="font-mono text-body">{parsedParams?.ob_strong_score ?? 6}</span>
+                    </label>
+                    <input type="range" min="3" max="10" step="1" value={parsedParams?.ob_strong_score ?? 6}
+                      onChange={(e) => {
+                        const p = { ...parsedParams }
+                        p.ob_strong_score = parseInt(e.target.value)
+                        setParamsText(JSON.stringify(p, null, 2))
+                      }}
+                      className="w-full accent-primary cursor-pointer" />
+                  </div>
+                  <div>
+                    <label className="flex justify-between text-xs text-muted mb-1">
+                      <span>TP Multiple (R)</span>
+                      <span className="font-mono text-body">{parsedParams?.tp_r_multiple ?? 2.0}x</span>
+                    </label>
+                    <input type="range" min="1.0" max="5.0" step="0.1" value={parsedParams?.tp_r_multiple ?? 2.0}
+                      onChange={(e) => {
+                        const p = { ...parsedParams }
+                        p.tp_r_multiple = parseFloat(e.target.value)
+                        setParamsText(JSON.stringify(p, null, 2))
+                      }}
+                      className="w-full accent-primary cursor-pointer" />
+                  </div>
+                  <div>
+                    <label className="flex justify-between text-xs text-muted mb-1">
+                      <span>SL Buffer Ratio</span>
+                      <span className="font-mono text-body">{parsedParams?.sl_buffer_ratio ?? 0.3}</span>
+                    </label>
+                    <input type="range" min="0" max="1.0" step="0.05" value={parsedParams?.sl_buffer_ratio ?? 0.3}
+                      onChange={(e) => {
+                        const p = { ...parsedParams }
+                        p.sl_buffer_ratio = parseFloat(e.target.value)
+                        setParamsText(JSON.stringify(p, null, 2))
+                      }}
+                      className="w-full accent-primary cursor-pointer" />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted">Allow Tested Once</span>
+                    <button onClick={() => {
+                      const p = { ...parsedParams }
+                      p.allow_tested_once = !p.allow_tested_once
+                      setParamsText(JSON.stringify(p, null, 2))
+                    }} className={`w-10 h-5 rounded-full transition-colors cursor-pointer ${(parsedParams?.allow_tested_once ?? true) ? 'bg-trading-up' : 'bg-surface-400'}`}>
+                      <span className={`block w-4 h-4 bg-white rounded-full transition-transform ${(parsedParams?.allow_tested_once ?? true) ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted">M5 Confirmation Required</span>
+                    <button onClick={() => {
+                      const p = { ...parsedParams }
+                      p.require_m5_confirmation = !p.require_m5_confirmation
+                      setParamsText(JSON.stringify(p, null, 2))
+                    }} className={`w-10 h-5 rounded-full transition-colors cursor-pointer ${parsedParams?.require_m5_confirmation ? 'bg-trading-up' : 'bg-surface-400'}`}>
+                      <span className={`block w-4 h-4 bg-white rounded-full transition-transform ${parsedParams?.require_m5_confirmation ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Trailing Stop */}
+              <div>
+                <p className="text-xs font-semibold text-body mb-2 border-b border-hairline-on-dark pb-1">Trailing Stop</p>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted">Enabled</span>
+                    <button onClick={() => {
+                      const p = { ...parsedParams }
+                      p.trailing_enabled = !p.trailing_enabled
+                      setParamsText(JSON.stringify(p, null, 2))
+                    }} className={`w-10 h-5 rounded-full transition-colors cursor-pointer ${parsedParams?.trailing_enabled ? 'bg-trading-up' : 'bg-surface-400'}`}>
+                      <span className={`block w-4 h-4 bg-white rounded-full transition-transform ${parsedParams?.trailing_enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                    </button>
+                  </div>
+                  {parsedParams?.trailing_enabled && (
+                    <>
+                      <div>
+                        <label className="flex justify-between text-xs text-muted mb-1">
+                          <span>Activation (pips)</span>
+                          <span className="font-mono text-body">{parsedParams?.trail_activation_pips ?? 10}</span>
+                        </label>
+                        <input type="range" min="1" max="50" step="1" value={parsedParams?.trail_activation_pips ?? 10}
+                          onChange={(e) => {
+                            const p = { ...parsedParams }
+                            p.trail_activation_pips = parseInt(e.target.value)
+                            setParamsText(JSON.stringify(p, null, 2))
+                          }}
+                          className="w-full accent-primary cursor-pointer" />
+                      </div>
+                      <div>
+                        <label className="flex justify-between text-xs text-muted mb-1">
+                          <span>Distance (pips)</span>
+                          <span className="font-mono text-body">{parsedParams?.trail_distance_pips ?? 5}</span>
+                        </label>
+                        <input type="range" min="1" max="30" step="1" value={parsedParams?.trail_distance_pips ?? 5}
+                          onChange={(e) => {
+                            const p = { ...parsedParams }
+                            p.trail_distance_pips = parseInt(e.target.value)
+                            setParamsText(JSON.stringify(p, null, 2))
+                          }}
+                          className="w-full accent-primary cursor-pointer" />
+                      </div>
+                      <div>
+                        <label className="flex justify-between text-xs text-muted mb-1">
+                          <span>Step (pips)</span>
+                          <span className="font-mono text-body">{parsedParams?.trail_step_pips ?? 1}</span>
+                        </label>
+                        <input type="range" min="0.5" max="10" step="0.5" value={parsedParams?.trail_step_pips ?? 1}
+                          onChange={(e) => {
+                            const p = { ...parsedParams }
+                            p.trail_step_pips = parseFloat(e.target.value)
+                            setParamsText(JSON.stringify(p, null, 2))
+                          }}
+                          className="w-full accent-primary cursor-pointer" />
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <button onClick={saveParams} className="mt-4 px-4 py-1.5 text-xs rounded bg-primary/10 text-primary border border-primary/50 cursor-pointer hover:bg-primary/20">Save Params</button>
+
+            <details className="mt-4">
+              <summary className="text-xs text-muted cursor-pointer hover:text-body">Advanced (JSON)</summary>
+              <textarea value={paramsText} onChange={(e) => setParamsText(e.target.value)}
+                className="w-full h-48 bg-canvas-dark border border-surface-400 rounded text-xs font-mono text-body p-3 mt-2 focus:outline-none focus:border-primary resize-none" />
+            </details>
           </div>
           <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-4">
             <h2 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Stats</h2>
@@ -282,48 +499,7 @@ export default function BotDetail() {
         </div>
       )}
 
-      {tab === 'edit' && (
-        <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-5 max-w-md">
-          <h2 className="text-xs font-semibold text-muted uppercase tracking-wider mb-4">Edit Bot</h2>
-          <div className="space-y-3">
-            <div>
-              <label className="block text-xs text-muted mb-1">Trailing Stop</label>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted">Enabled</span>
-                <button onClick={() => {
-                  const p = state?.bot.parameters ?? {}
-                  const enabled = !p.trailing_enabled
-                  setParamsText(JSON.stringify({ ...p, trailing_enabled: enabled, trail_activation_pips: p.trail_activation_pips ?? 10, trail_distance_pips: p.trail_distance_pips ?? 5, trail_step_pips: p.trail_step_pips ?? 1 }, null, 2))
-                }} className={`w-10 h-5 rounded-full transition-colors cursor-pointer ${(state?.bot.parameters?.trailing_enabled) ? 'bg-trading-up' : 'bg-surface-400'}`}>
-                  <span className={`block w-4 h-4 bg-white rounded-full transition-transform ${state?.bot.parameters?.trailing_enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
-                </button>
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs text-muted mb-1">Name</label>
-              <input value={editName} onChange={(e) => setEditName(e.target.value)}
-                className="w-full px-3 py-2 bg-surface-elevated-dark border border-hairline-on-dark rounded text-sm text-body focus:outline-none focus:border-primary" />
-            </div>
-            <div>
-              <label className="block text-xs text-muted mb-1">Symbol</label>
-              <input value={editSymbol} onChange={(e) => setEditSymbol(e.target.value)}
-                className="w-full px-3 py-2 bg-surface-elevated-dark border border-hairline-on-dark rounded text-sm text-body focus:outline-none focus:border-primary" />
-            </div>
-            <div>
-              <label className="block text-xs text-muted mb-1">Timeframe</label>
-              <select value={editTf} onChange={(e) => setEditTf(e.target.value)}
-                className="w-full px-3 py-2 bg-surface-elevated-dark border border-hairline-on-dark rounded text-sm text-body focus:outline-none focus:border-primary">
-                <option value="M1">M1</option>
-                <option value="M5">M5</option>
-                <option value="M15">M15</option>
-                <option value="H1">H1</option>
-              </select>
-            </div>
-            <button onClick={saveEdit}
-              className="px-4 py-2 text-xs rounded bg-primary/10 text-primary border border-primary/50 cursor-pointer">Save Changes</button>
-          </div>
-        </div>
-      )}
+
 
       {tab === 'signals' && (
         <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg overflow-hidden">

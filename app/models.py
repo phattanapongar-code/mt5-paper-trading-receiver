@@ -2,6 +2,24 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
 
+class CandlePayload(BaseModel):
+    timeframe: Literal["M1"] = "M1"
+    open_time: int = Field(gt=0)
+    open: float = Field(gt=0)
+    high: float = Field(gt=0)
+    low: float = Field(gt=0)
+    close: float = Field(gt=0)
+    tick_volume: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def validate_ohlc(self):
+        if self.high < max(self.open, self.close, self.low):
+            raise ValueError("high must be >= open/close/low")
+        if self.low > min(self.open, self.close, self.high):
+            raise ValueError("low must be <= open/close/high")
+        return self
+
+
 class TickPayload(BaseModel):
     type: Literal["tick", "heartbeat"] = "tick"
     symbol: str = Field(default="XAUUSD")
@@ -9,6 +27,7 @@ class TickPayload(BaseModel):
     ask: float
     timestamp: int
     seq: Optional[int] = None
+    candle: Optional[CandlePayload] = None
 
     @model_validator(mode="after")
     def validate_prices(self):

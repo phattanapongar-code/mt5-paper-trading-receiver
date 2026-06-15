@@ -54,7 +54,9 @@ def test_trend_returns_warming_up_without_enough_data(tmp_path):
 def test_stages_one_aligned_pending_after_zone_touch(tmp_path):
     _seed_bearish(tmp_path)
     from app.multibot.runtime import process_tick_sync
-    # Create an order block
+    # Latest candle open_time after 320 inserts at 900s intervals is 319*900 = 287100
+    # break_open_time must be within 20 candles (ob_max_age_candles default) of the latest candle
+    recent_break = 287100 - 5 * 900  # 5 candles ago
     storage.execute(
         """
         INSERT INTO order_blocks(
@@ -64,8 +66,9 @@ def test_stages_one_aligned_pending_after_zone_touch(tmp_path):
             impulse_range_ratio, origin_swing_open_time, origin_swing_price,
             swing_distance_ratio, retest_count, status, score, is_strong,
             score_reasons, created_at, updated_at
-        ) VALUES ('XAUUSD','M15','bearish',1,1,200,2,190,3,181,182,180,184,5,6,2,2,3,184,0,0,'active',8,1,'test',1,1)
-        """
+        ) VALUES ('XAUUSD','M15','bearish',1,1,200,?,190,3,181,182,180,184,5,6,2,2,3,184,0,0,'active',8,1,'test',1,1)
+        """,
+        (recent_break,),
     )
     # Set up a bot to evaluate
     migrate()
@@ -87,7 +90,8 @@ def test_stages_one_aligned_pending_after_zone_touch(tmp_path):
     pending = storage.query_one("SELECT * FROM bot_pending_orders WHERE bot_id=1 AND status='pending' ORDER BY id DESC LIMIT 1")
     assert pending is not None
     assert pending["side"] == "sell"
-    assert pending["entry"] == 182.0
+    # Entry is at OB low (bearish entry = ob_low)
+    assert pending["entry"] == 180.0
 
 
 def test_rr_gate_rejects_low_rr(tmp_path):
@@ -95,6 +99,7 @@ def test_rr_gate_rejects_low_rr(tmp_path):
     from app.multibot.runtime import process_tick_sync
     from app.multibot.service import update_bot_parameters
     
+    recent_break = 287100 - 5 * 900
     storage.execute(
         """
         INSERT INTO order_blocks(
@@ -104,8 +109,9 @@ def test_rr_gate_rejects_low_rr(tmp_path):
             impulse_range_ratio, origin_swing_open_time, origin_swing_price,
             swing_distance_ratio, retest_count, status, score, is_strong,
             score_reasons, created_at, updated_at
-        ) VALUES ('XAUUSD','M15','bearish',1,1,200,2,190,3,181,182,180,184,5,6,2,2,3,184,0,0,'active',8,1,'test',1,1)
-        """
+        ) VALUES ('XAUUSD','M15','bearish',1,1,200,?,190,3,181,182,180,184,5,6,2,2,3,184,0,0,'active',8,1,'test',1,1)
+        """,
+        (recent_break,),
     )
     migrate()
     storage.execute("UPDATE bots SET enabled=1 WHERE id=1")

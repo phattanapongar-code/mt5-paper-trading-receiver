@@ -281,6 +281,32 @@ class CandleEngine:
              candle.high, candle.low, candle.close, candle.tick_count, candle.is_closed, candle.updated_at),
         )
 
+    def ingest_m1_candle(self, symbol: str, open_time: int, open: float, high: float, low: float, close: float, tick_volume: int = 0) -> dict[str, int]:
+        """Insert a closed M1 candle from MT5 sender and rebuild higher timeframes."""
+        now = int(time.time())
+        seconds = 60
+        bucket = self._bucket(open_time, seconds)
+        storage.execute(
+            """
+            INSERT INTO candles(symbol, timeframe, open_time, close_time, open, high, low, close, tick_count, is_closed, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(symbol, timeframe, open_time) DO UPDATE SET
+                close_time = excluded.close_time,
+                open = excluded.open,
+                high = excluded.high,
+                low = excluded.low,
+                close = excluded.close,
+                tick_count = excluded.tick_count,
+                is_closed = 1,
+                updated_at = excluded.updated_at
+            """,
+            (symbol, "M1", bucket, bucket + seconds, open, high, low, close, tick_volume, 1, now),
+        )
+        # Clear active M1 candle so tick-based code doesn't overwrite this closed one
+        self.active.pop((symbol, "M1"), None)
+        # Rebuild M5/M15/H1 from M1
+        return self.rebuild_from_m1(symbol)
+
     def get_candles(self, symbol: str, timeframe: str, limit: int = 400, closed_only: bool = False,
                     start_time: int | None = None, end_time: int | None = None) -> list[dict[str, Any]]:
         if timeframe not in TIMEFRAMES:

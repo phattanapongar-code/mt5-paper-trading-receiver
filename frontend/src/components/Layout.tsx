@@ -34,8 +34,6 @@ const bottomNavItems: { to: string; label: string; icon: IconType }[] = [
 
 const STRATEGY_COLORS: Record<string, string> = {
   trend_ob: '#FCD535',
-  rsi_meanrev: '#0ecb81',
-  macd_cross: '#5e7cc4',
 }
 
 function isBotLive(bot: Bot): boolean {

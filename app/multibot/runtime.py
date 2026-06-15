@@ -47,13 +47,28 @@ def _apply_entry_slippage(price: float, side: str, slippage_pts: float) -> float
     return price - abs(slippage_pts)
 
 
-def _check_gap(symbol: str, tick_ts: int, params: dict[str, Any]) -> float | None:
+def _check_gap(symbol: str, tick_ts: int, params: dict[str, Any], conn: Any = None) -> float | None:
+    """conn needed for DB persistence across restarts; can be None in tests."""
     if not params.get("gap_check_enabled"):
         return None
     threshold = int(params.get("gap_threshold_seconds", 3600))
-    key = f"{symbol}"
+    key = f"last_tick_{symbol}"
     last_ts = _last_tick_ts.get(key)
+    if last_ts is None and conn is not None:
+        # Fallback to DB — survives receiver restart
+        try:
+            row = conn.execute("SELECT value FROM multibot_runtime_settings WHERE key=?", (key,)).fetchone()
+            if row:
+                last_ts = int(row["value"])
+        except Exception:
+            pass
     _last_tick_ts[key] = tick_ts
+    # Persist to DB so gap detection works after restart
+    if conn is not None:
+        conn.execute(
+            "INSERT OR REPLACE INTO multibot_runtime_settings(key, value, updated_at) VALUES(?, ?, ?)",
+            (key, str(tick_ts), tick_ts),
+        )
     if last_ts is None or (tick_ts - last_ts) < threshold:
         return None
     gap_pct = random.uniform(-float(params.get("gap_max_percent", 0.5)), float(params.get("gap_max_percent", 0.5))) / 100.0
@@ -149,14 +164,34 @@ def _pip_value(symbol: str) -> float:
 
 
 def _trail_stop(conn, position: dict[str, Any], bid: float, ask: float, params: dict[str, Any], now: int) -> None:
+    entry = float(position["entry"])
+    side = position["side"]
+
+    # Breakeven: move SL to entry once price reaches 1R
+    tp = float(position.get("take_profit") or 0)
+    if tp > 0:
+        tp_multiple = float(params.get("tp_r_multiple", 2.0))
+        risk_dist = (tp - entry) / tp_multiple
+        if risk_dist > 0:
+            moved = (bid - entry) if side == "buy" else (entry - ask)
+            if moved >= risk_dist * 0.9:  # slight tolerance
+                current_sl = float(position["stop_loss"] or 0)
+                needs_be = (side == "buy" and current_sl < entry) or (side == "sell" and current_sl > entry)
+                if needs_be:
+                    conn.execute("UPDATE bot_positions SET stop_loss=?,updated_at=? WHERE id=?", (entry, now, position["id"]))
+                    # Reload position so trailing stop uses the new SL
+                    row = conn.execute("SELECT * FROM bot_positions WHERE id=?", (position["id"],)).fetchone()
+                    if row:
+                        position = dict(row)
+
+    # Trailing stop (only activates after breakeven or separately)
     if not params.get("trailing_enabled"):
         return
     activate_pips = float(params.get("trail_activation_pips", 10))
     trail_dist = float(params.get("trail_distance_pips", 5))
     step_pips = float(params.get("trail_step_pips", 1))
     pip_val = _pip_value(str(position.get("symbol", "XAUUSD")))
-    entry = float(position["entry"])
-    if position["side"] == "buy":
+    if side == "buy":
         price_diff = bid - entry
         if price_diff >= activate_pips * pip_val:
             new_sl = bid - trail_dist * pip_val
@@ -280,7 +315,7 @@ def _evaluate_bot(conn, bot: dict[str, Any], tick: dict[str, Any], now: int) -> 
     # Simulate market gap if applicable
     gap_pct = None
     if prev_tick_ts and tick.get("timestamp"):
-        gap_pct = _check_gap(bot["symbol"], int(tick["timestamp"]), params)
+        gap_pct = _check_gap(bot["symbol"], int(tick["timestamp"]), params, conn=conn)
     if gap_pct is not None:
         gap_adj = 1.0 + gap_pct
         bid *= gap_adj
@@ -372,8 +407,19 @@ def _evaluate_bot(conn, bot: dict[str, Any], tick: dict[str, Any], now: int) -> 
         return
     ob_key = decision.get("ob_key")
     if ob_key:
-        seen = conn.execute("SELECT 1 FROM bot_pending_orders WHERE bot_id=? AND ob_key=? LIMIT 1", (bot_id, ob_key)).fetchone()
-        if seen:
+        still_active = conn.execute(
+            "SELECT 1 FROM bot_pending_orders WHERE bot_id=? AND ob_key=? AND status='pending' LIMIT 1",
+            (bot_id, ob_key),
+        ).fetchone()
+        if still_active:
+            return
+        open_pos = conn.execute(
+            """SELECT 1 FROM bot_positions p
+               JOIN bot_pending_orders o ON p.pending_id=o.id
+               WHERE o.bot_id=? AND o.ob_key=? AND p.status='open' LIMIT 1""",
+            (bot_id, ob_key),
+        ).fetchone()
+        if open_pos:
             return
     entry = float(decision["entry"])
     sl = float(decision["stop_loss"])

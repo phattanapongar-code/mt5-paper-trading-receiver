@@ -27,6 +27,7 @@ def default_parameters() -> dict[str, Any]:
         "max_lot": settings.max_lot,
         "allow_tested_once": True,
         "require_m5_confirmation": False,
+        "ob_max_age_candles": 20,
         "daily_loss_limit_percent": 0.03,
         "max_consecutive_losses": 3,
         "trailing_enabled": False,
@@ -206,9 +207,8 @@ def migrate() -> dict[str, Any]:
         )
         profile_id = conn.execute("SELECT id FROM profiles WHERE name='default'").fetchone()["id"]
 
-        # Migrate legacy bot name: check old name first, then create if needed
-        existing_bot = conn.execute("SELECT id FROM bots WHERE name='Paper Trading'").fetchone()
-        if existing_bot is None:
+        any_bot = conn.execute("SELECT id FROM bots LIMIT 1").fetchone()
+        if any_bot is None:
             old_bot = conn.execute("SELECT id FROM bots WHERE name='trend-ob-baseline'").fetchone()
             if old_bot:
                 conn.execute("UPDATE bots SET name='Paper Trading', updated_at=? WHERE id=?", (now, old_bot["id"]))
@@ -220,7 +220,7 @@ def migrate() -> dict[str, Any]:
                 )
                 bot_id = cur.lastrowid
         else:
-            bot_id = existing_bot["id"]
+            bot_id = any_bot["id"]
 
         balance = settings.initial_balance
         realized = 0.0

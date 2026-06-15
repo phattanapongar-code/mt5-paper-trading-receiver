@@ -66,7 +66,7 @@ def test_backtest_request_validation():
 
 def test_backtest_request_custom():
     req = BacktestRequest(
-        strategy_type="bb_breakout",
+        strategy_type="trend_ob",
         symbol="EURUSD",
         timeframe="H1",
         start_time=1000,
@@ -74,6 +74,6 @@ def test_backtest_request_custom():
         initial_balance=5000.0,
         parameters={"risk_percent": 0.02},
     )
-    assert req.strategy_type == "bb_breakout"
+    assert req.strategy_type == "trend_ob"
     assert req.symbol == "EURUSD"
     assert req.parameters["risk_percent"] == 0.02
