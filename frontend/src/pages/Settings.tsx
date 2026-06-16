@@ -10,7 +10,7 @@ export default function Settings() {
   const [bots, setBots] = useState<Bot[]>([])
   const [loading, setLoading] = useState(true)
   const historyFileInputRef = useRef<HTMLInputElement>(null)
-  const [alertCfg, setAlertCfg] = useState<AlertConfigData>({ bot_token: '', chat_id: '', enabled: false })
+  const [alertCfg, setAlertCfg] = useState<AlertConfigData>({ bot_token: '', chat_id: '', enabled: false, enabled_categories: ['trade', 'risk', 'error', 'health', 'pending', 'trail'] })
   const [alertLoading, setAlertLoading] = useState(false)
 
   const fetchData = useCallback(async () => {
@@ -18,7 +18,7 @@ export default function Settings() {
       const [historyStatusRes, botsRes, alertRes] = await Promise.all([
         client.get<HistoryStatus>('/history/status'),
         client.get<Bot[]>('/bots'),
-        client.get<AlertConfigData>('/alerts/config').catch(() => ({ data: { bot_token: '', chat_id: '', enabled: false } as AlertConfigData })),
+        client.get<AlertConfigData>('/alerts/config').catch(() => ({ data: { bot_token: '', chat_id: '', enabled: false, enabled_categories: ['trade', 'risk', 'error', 'health', 'pending', 'trail'] } as AlertConfigData })),
       ])
       setBots(botsRes.data)
       setHistoryStatus(historyStatusRes.data)
@@ -200,6 +200,27 @@ export default function Settings() {
               <span className={`block w-4 h-4 bg-white rounded-full transition-transform ${alertCfg.enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
             </button>
           </div>
+          {alertCfg.enabled && (
+            <div>
+              <label className="block text-xs text-muted mb-1.5">Alert Categories</label>
+              <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                {['trade', 'risk', 'error', 'health', 'pending', 'trail'].map(cat => (
+                  <label key={cat} className="flex items-center gap-1.5 cursor-pointer">
+                    <input type="checkbox" checked={alertCfg.enabled_categories?.includes(cat) ?? true}
+                      onChange={(e) => {
+                        const current = alertCfg.enabled_categories ?? ['trade', 'risk', 'error', 'health', 'pending', 'trail']
+                        const next = e.target.checked
+                          ? [...current, cat]
+                          : current.filter((c: string) => c !== cat)
+                        setAlertCfg(prev => ({ ...prev, enabled_categories: next.length ? next : [cat] }))
+                      }}
+                      className="accent-primary cursor-pointer" />
+                    <span className="text-xs text-body capitalize">{cat === 'trail' ? 'SL Trail' : cat}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="flex gap-2">
             <button onClick={async () => {
               setAlertLoading(true)

@@ -33,7 +33,13 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan — startup and graceful shutdown."""
+    health_task = asyncio.create_task(_health_monitor())
     yield
+    health_task.cancel()
+    try:
+        await health_task
+    except asyncio.CancelledError:
+        pass
     await alert_engine.close()
 
 
@@ -96,8 +102,23 @@ last_seq: int | None = None
 ws_clients: set[WebSocket] = set()
 
 # Health alert state tracking
-_was_sender_online: bool = False
+_was_sender_online: bool = True
 _last_health_alert: float = 0.0
+
+
+async def _health_monitor() -> None:
+    global _was_sender_online, _last_health_alert
+    while True:
+        await asyncio.sleep(15)
+        now = int(time.time())
+        online = last_received_at is not None and (now - last_received_at) <= settings.stale_tick_seconds
+        if online != _was_sender_online and (now - _last_health_alert) > 30:
+            _was_sender_online = online
+            _last_health_alert = now
+            if online:
+                alert_engine.notify_health("online", f"Sender reconnected\nLast tick: {last_received_at}")
+            else:
+                alert_engine.notify_health("offline", f"No ticks received for {now - last_received_at}s\nLast tick: {last_received_at}")
 
 
 async def broadcast(payload: dict[str, Any]) -> None:
@@ -411,6 +432,11 @@ def cancel_pending_order(order_id: int, bot_id: int | None = None) -> dict[str, 
             "UPDATE bot_pending_orders SET status='cancelled',cancel_reason='manual_cancel',updated_at=? WHERE id=?",
             (int(time.time()), order_id),
         )
+        bot_row = conn.execute("SELECT name FROM bots WHERE id=?", (order["bot_id"],)).fetchone()
+        alert_engine.notify_pending_cancelled(
+            str(bot_row["name"]) if bot_row else "?",
+            str(order["symbol"]), str(order["side"]), "manual_cancel", float(order["entry"]),
+        )
         return dict(conn.execute("SELECT * FROM bot_pending_orders WHERE id=?", (order_id,)).fetchone())
 
 
@@ -670,11 +696,14 @@ multibot.ensure_default_bot()
 _token_row = storage.query_one("SELECT value FROM multibot_runtime_settings WHERE key='alert.bot_token'")
 _chat_row = storage.query_one("SELECT value FROM multibot_runtime_settings WHERE key='alert.chat_id'")
 _enabled_row = storage.query_one("SELECT value FROM multibot_runtime_settings WHERE key='alert.enabled'")
+_cats_row = storage.query_one("SELECT value FROM multibot_runtime_settings WHERE key='alert.enabled_categories'")
+_cats = json.loads(_cats_row["value"]) if _cats_row else None
 if _token_row and _chat_row:
     alert_engine.configure(
         bot_token=_token_row["value"],
         chat_id=_chat_row["value"],
         enabled=(_enabled_row["value"] if _enabled_row else "0") == "1",
+        enabled_categories=_cats,
     )
 
 
@@ -683,10 +712,13 @@ def get_alert_config() -> dict[str, Any]:
     token = storage.query_one("SELECT value FROM multibot_runtime_settings WHERE key='alert.bot_token'")
     chat = storage.query_one("SELECT value FROM multibot_runtime_settings WHERE key='alert.chat_id'")
     enabled = storage.query_one("SELECT value FROM multibot_runtime_settings WHERE key='alert.enabled'")
+    cats_row = storage.query_one("SELECT value FROM multibot_runtime_settings WHERE key='alert.enabled_categories'")
+    cats = json.loads(cats_row["value"]) if cats_row else None
     return {
         "bot_token": token["value"] if token else "",
         "chat_id": chat["value"] if chat else "",
         "enabled": (enabled["value"] if enabled else "0") == "1",
+        "enabled_categories": cats if cats else ["trade", "risk", "error", "health", "pending", "trail"],
     }
 
 
@@ -694,6 +726,7 @@ class AlertConfigRequest(BaseModel):
     bot_token: str = ""
     chat_id: str = ""
     enabled: bool = False
+    enabled_categories: list[str] | None = None
 
 
 @app.post("/api/alerts/config")
@@ -702,7 +735,9 @@ def save_alert_config(req: AlertConfigRequest) -> dict[str, Any]:
     storage.execute("INSERT OR REPLACE INTO multibot_runtime_settings(key,value,updated_at) VALUES('alert.bot_token',?,?)", (req.bot_token, now))
     storage.execute("INSERT OR REPLACE INTO multibot_runtime_settings(key,value,updated_at) VALUES('alert.chat_id',?,?)", (req.chat_id, now))
     storage.execute("INSERT OR REPLACE INTO multibot_runtime_settings(key,value,updated_at) VALUES('alert.enabled',?,?)", ("1" if req.enabled else "0", now))
-    alert_engine.configure(req.bot_token, req.chat_id, req.enabled)
+    cats = req.enabled_categories or ["trade", "risk", "error", "health", "pending", "trail"]
+    storage.execute("INSERT OR REPLACE INTO multibot_runtime_settings(key,value,updated_at) VALUES('alert.enabled_categories',?,?)", (json.dumps(cats), now))
+    alert_engine.configure(req.bot_token, req.chat_id, req.enabled, cats)
     return {"ok": True}
 
 

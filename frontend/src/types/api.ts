@@ -93,6 +93,7 @@ export interface AlertConfig {
   bot_token: string
   chat_id: string
   enabled: boolean
+  enabled_categories: string[]
 }
 
 export interface Trade {

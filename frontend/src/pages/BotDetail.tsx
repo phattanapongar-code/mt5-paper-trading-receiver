@@ -348,6 +348,19 @@ export default function BotDetail() {
                       }}
                       className="w-full accent-primary cursor-pointer" />
                   </div>
+                  <div>
+                    <label className="flex justify-between text-xs text-muted mb-1">
+                      <span>Drawdown Alert</span>
+                      <span className="font-mono text-body">{parsedParams?.drawdown_alert_percent ?? 10}%</span>
+                    </label>
+                    <input type="range" min="1" max="50" step="1" value={parsedParams?.drawdown_alert_percent ?? 10}
+                      onChange={(e) => {
+                        const p = { ...parsedParams }
+                        p.drawdown_alert_percent = parseInt(e.target.value)
+                        setParamsText(JSON.stringify(p, null, 2))
+                      }}
+                      className="w-full accent-primary cursor-pointer" />
+                  </div>
                 </div>
               </div>
 

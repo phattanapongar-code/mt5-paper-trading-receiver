@@ -164,9 +164,10 @@ def _pip_value(symbol: str) -> float:
     return 0.0001
 
 
-def _trail_stop(conn, position: dict[str, Any], bid: float, ask: float, params: dict[str, Any], now: int) -> None:
+def _trail_stop(conn, position: dict[str, Any], bid: float, ask: float, params: dict[str, Any], now: int, bot_name: str = "?") -> None:
     entry = float(position["entry"])
     side = position["side"]
+    symbol = str(position.get("symbol", "?"))
 
     # Breakeven: move SL to entry once price reaches 1R
     tp = float(position.get("take_profit") or 0)
@@ -180,6 +181,7 @@ def _trail_stop(conn, position: dict[str, Any], bid: float, ask: float, params: 
                 needs_be = (side == "buy" and current_sl < entry) or (side == "sell" and current_sl > entry)
                 if needs_be:
                     conn.execute("UPDATE bot_positions SET stop_loss=?,updated_at=? WHERE id=?", (entry, now, position["id"]))
+                    alert_engine.notify_trail_update(bot_name, symbol, side, current_sl, entry, "breakeven")
                     # Reload position so trailing stop uses the new SL
                     row = conn.execute("SELECT * FROM bot_positions WHERE id=?", (position["id"],)).fetchone()
                     if row:
@@ -199,6 +201,7 @@ def _trail_stop(conn, position: dict[str, Any], bid: float, ask: float, params: 
             old_sl = float(position["stop_loss"] or 0)
             if new_sl > old_sl + step_pips * pip_val:
                 conn.execute("UPDATE bot_positions SET stop_loss=?,updated_at=? WHERE id=?", (new_sl, now, position["id"]))
+                alert_engine.notify_trail_update(bot_name, symbol, side, old_sl, new_sl, "trailing")
     else:
         price_diff = entry - ask
         if price_diff >= activate_pips * pip_val:
@@ -206,6 +209,7 @@ def _trail_stop(conn, position: dict[str, Any], bid: float, ask: float, params: 
             old_sl = float(position["stop_loss"] or 0)
             if new_sl < old_sl - step_pips * pip_val:
                 conn.execute("UPDATE bot_positions SET stop_loss=?,updated_at=? WHERE id=?", (new_sl, now, position["id"]))
+                alert_engine.notify_trail_update(bot_name, symbol, side, old_sl, new_sl, "trailing")
 
 
 def _close_position(
@@ -282,6 +286,11 @@ def _close_position(
         r_multiple=r_multiple, commission=commission, slippage=slippage_pts,
         spread_cost=spread_cost, net_pnl=net_pnl,
     )
+    dd_limit = float(params.get("drawdown_alert_percent", 10.0)) / 100.0 if params else 0.1
+    if drawdown >= dd_limit:
+        alert_engine.notify_drawdown(
+            str(position.get("bot_name", "?")), drawdown * 100, new_balance, dd_limit * 100,
+        )
     _log(conn, position["bot_id"], "position_closed", reason, {"position_id": position["id"], "pnl": pnl, "net_pnl": net_pnl, "r_multiple": r_multiple, "commission": commission, "slippage_pips": slippage_pips})
 
 
@@ -349,7 +358,7 @@ def _evaluate_bot(conn, bot: dict[str, Any], tick: dict[str, Any], now: int) -> 
                     _close_position(conn, p, ask, "tp_hit", now, params, bid, ask, slip)
                     continue
             # Trailing stop: move SL toward price after position still open
-            _trail_stop(conn, p, bid, ask, params, now)
+            _trail_stop(conn, p, bid, ask, params, now, str(bot.get("name", "?")))
         return
 
     pending = conn.execute("SELECT * FROM bot_pending_orders WHERE bot_id=? AND status='pending' ORDER BY id DESC LIMIT 1", (bot_id,)).fetchone()
@@ -357,6 +366,7 @@ def _evaluate_bot(conn, bot: dict[str, Any], tick: dict[str, Any], now: int) -> 
         po = dict(pending)
         if po.get("expires_at") and now >= int(po["expires_at"]):
             conn.execute("UPDATE bot_pending_orders SET status='cancelled',cancel_reason='expired',updated_at=? WHERE id=?", (now, po["id"]))
+            alert_engine.notify_pending_cancelled(str(bot.get("name", "?")), str(po.get("symbol", "?")), str(po.get("side", "?")), "expired", float(po.get("entry", 0)))
             _log(conn, bot_id, "pending_cancelled", "expired", {"pending_id": po["id"]})
             return
         should_fill = (po["side"] == "buy" and ask <= float(po["entry"])) or (po["side"] == "sell" and bid >= float(po["entry"]))
@@ -449,6 +459,7 @@ def _evaluate_bot(conn, bot: dict[str, Any], tick: dict[str, Any], now: int) -> 
         (bot_id, wallet_id, ob_key, bot["symbol"], bot["timeframe"], action, entry, sl, tp, rr, params["risk_percent"], lot, now, now + expiry_seconds, now),
     )
     conn.execute("UPDATE bot_runtime_state SET latest_ob_key=?,updated_at=? WHERE bot_id=?", (ob_key, now, bot_id))
+    alert_engine.notify_pending_created(str(bot.get("name", "?")), str(bot.get("symbol", "?")), action, entry, sl, tp, lot, now + expiry_seconds, str(meta.id))
     _log(conn, bot_id, "pending_created", str(meta.id), {"pending_id": cur.lastrowid, "ob_key": ob_key, "entry": entry, "sl": sl, "tp": tp, "lot": lot, "strategy": meta.id})
 
 

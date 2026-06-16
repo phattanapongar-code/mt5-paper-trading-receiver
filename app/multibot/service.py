@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 from app import storage
+from app.alert import alert_engine
 from app.config import settings
 from app.multibot.db import default_parameters, json_text
 
@@ -326,7 +327,12 @@ def open_position(bot_id: int, side: str, lot: float, stop_loss: float | None, t
             (bot_id, wallet["id"], sym, side, lot, entry, stop_loss, take_profit, now, now,
              json_text({"entry_slippage_pips": slip_pips, "fill_price_raw": raw_entry})),
         )
-        return dict(conn.execute("SELECT *, exit_price AS \"exit\" FROM bot_positions WHERE id=?", (cur.lastrowid,)).fetchone())
+        pos = dict(conn.execute("SELECT *, exit_price AS \"exit\" FROM bot_positions WHERE id=?", (cur.lastrowid,)).fetchone())
+        alert_engine.notify_trade_open(
+            str(bot.get("name", "?")), side, entry, stop_loss or 0, take_profit or 0, lot,
+            sym, slippage_pips=slip_pips, source="manual",
+        )
+        return pos
 
 
 def close_position(bot_id: int, tick: dict[str, Any], note: str = "manual_close") -> dict[str, Any] | None:
@@ -337,8 +343,9 @@ def close_position(bot_id: int, tick: dict[str, Any], note: str = "manual_close"
         if position is None:
             raise ValueError("No open position")
         p = dict(position)
-        bot_row = conn.execute("SELECT parameters_json FROM bots WHERE id=?", (bot_id,)).fetchone()
+        bot_row = conn.execute("SELECT parameters_json, name FROM bots WHERE id=?", (bot_id,)).fetchone()
         params = _decode(bot_row["parameters_json"] if bot_row else "{}")
+        bot_name = str(bot_row["name"]) if bot_row else "?"
 
         # Get current bid/ask for the position's symbol (not from passed tick, which may be wrong symbol)
         sym = str(p.get("symbol", "XAUUSD"))
@@ -398,7 +405,13 @@ def close_position(bot_id: int, tick: dict[str, Any], note: str = "manual_close"
             "UPDATE wallets SET balance=?,realized_pnl=realized_pnl+?,peak_equity=?,max_drawdown=?,total_commission=total_commission+?,total_spread_cost=total_spread_cost+?,total_slippage=total_slippage+?,updated_at=? WHERE bot_id=?",
             (new_balance, net_pnl, peak, max_dd, commission, spread_cost, abs(slip_pts * float(p["lot"]) * contract_size), now, bot_id),
         )
-        return dict(conn.execute("SELECT *, exit_price AS \"exit\" FROM bot_positions WHERE id=?", (p["id"],)).fetchone())
+        pos = dict(conn.execute("SELECT *, exit_price AS \"exit\" FROM bot_positions WHERE id=?", (p["id"],)).fetchone())
+        alert_engine.notify_trade_close(
+            bot_name, side, pnl, note, sym, r_multiple=r_multiple,
+            commission=commission, slippage=slip_pts, spread_cost=spread_cost,
+            net_pnl=net_pnl, source="manual",
+        )
+        return pos
 
 
 def bot_stats_summary(bot_id: int) -> dict[str, Any]:
