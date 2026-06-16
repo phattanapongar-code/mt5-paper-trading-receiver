@@ -30,7 +30,6 @@ export default function DataSourceNode({ data }: { data: DataSourceNodeData }) {
           )}
         </div>
       </div>
-      <Handle type="target" position={Position.Left} className="bg-primary" style={{ width: '8px', height: '8px', top: '50%', marginTop: '-4px' }} />
       <Handle type="source" position={Position.Right} className="bg-primary" style={{ width: '8px', height: '8px', top: '50%', marginTop: '-4px' }} />
     </div>
   )

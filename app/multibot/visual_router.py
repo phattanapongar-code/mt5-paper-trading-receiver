@@ -59,7 +59,7 @@ def ensure_table() -> None:
 @router.get("")
 def list_strategies() -> list[dict[str, Any]]:
     ensure_table()
-    rows = storage.query(
+    rows = storage.query_all(
         "SELECT id, name, description, created_at, updated_at FROM visual_strategies ORDER BY updated_at DESC"
     )
     return [dict(r) for r in rows]

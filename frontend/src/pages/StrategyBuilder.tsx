@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import {
   ReactFlow,
   Background,
@@ -6,6 +6,7 @@ import {
   MiniMap,
   useNodesState,
   useEdgesState,
+  useReactFlow,
   addEdge,
   type Node,
   type Edge,
@@ -17,6 +18,7 @@ import { useAuth } from '../context/AuthContext'
 import Toolbar from '../components/strategy-builder/Toolbar'
 import ConfigPanel from '../components/strategy-builder/ConfigPanel'
 import { nodeTypes } from '../components/strategy-builder/nodes'
+import { getDefaultParams, getNodeLabel, getNodeColor } from '../components/strategy-builder/utils'
 
 export interface StrategyGraph {
   nodes: Array<{ id: string; type: string; params: Record<string, unknown>; position: { x: number; y: number } }>
@@ -26,6 +28,7 @@ export interface StrategyGraph {
 export default function StrategyBuilder() {
   const { addToast } = useToast()
   const { isAuthenticated, loading } = useAuth()
+  const reactFlowInstance = useReactFlow()
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
@@ -34,6 +37,9 @@ export default function StrategyBuilder() {
   const [strategyName, setStrategyName] = useState('')
   const [strategyDescription, setStrategyDescription] = useState('')
   const [selectedStrategyId, setSelectedStrategyId] = useState<number | null>(null)
+  const [testBid, setTestBid] = useState('')
+  const [testAsk, setTestAsk] = useState('')
+  const reactFlowWrapper = useRef<HTMLDivElement>(null)
 
   // Fetch saved strategies
   useEffect(() => {
@@ -56,22 +62,39 @@ export default function StrategyBuilder() {
     setEdges((eds) => addEdge(newEdge, eds))
   }, [setEdges])
 
-  const onDragStart = useCallback((type: string) => {
+  const onDragOver = useCallback((event: React.DragEvent) => {
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+  }, [])
+
+  const onDrop = useCallback((event: React.DragEvent) => {
+    event.preventDefault()
+    const type = event.dataTransfer.getData('application/reactflow')
+    if (!type || !reactFlowWrapper.current) return
+
+    const position = reactFlowInstance.screenToFlowPosition({
+      x: event.clientX,
+      y: event.clientY,
+    })
+
     const node = {
       id: `node_${Date.now()}`,
       type,
-      position: { x: 0, y: 0 } as any,
+      position,
       data: {
-        params: {},
-        label: type,
-        color: '#707a8a',
+        params: getDefaultParams(type as any),
+        label: getNodeLabel(type as any),
+        color: getNodeColor(type as any),
       },
-      sourcePosition: 'right' as any,
-      targetPosition: 'left' as any,
+      sourcePosition: 'right' as const,
+      targetPosition: 'left' as const,
       draggable: true,
+      style: {
+        width: type === 'order' ? 220 : 180,
+      },
     }
     setNodes((nds) => [...nds, node])
-  }, [setNodes])
+  }, [reactFlowInstance, setNodes])
 
   const onNodeDragStop = useCallback((_event: MouseEvent | TouchEvent, node: Node) => {
     setNodes((nds) =>
@@ -189,22 +212,38 @@ export default function StrategyBuilder() {
       })),
     }
 
+    const bid = parseFloat(testBid)
+    const ask = parseFloat(testAsk)
+    if (isNaN(bid) || isNaN(ask) || bid <= 0 || ask <= 0) {
+      addToast('Enter valid bid/ask prices for testing', 'error')
+      return
+    }
+
     try {
-      const res = await client.post<{ decision: string | null; reason: string }>(
+      const res = await client.post<{ decision: Record<string, unknown> | null }>(
         '/visual-strategies/test',
         {
           graph,
-          bid: 2300,
-          ask: 2300.5,
+          bid,
+          ask,
           symbol: 'XAUUSD',
           timeframe: 'M15',
         }
       )
-      addToast(`Decision: ${res.data.decision || 'No action'} - ${res.data.reason}`, 'info')
+      const decision = res.data.decision
+      if (!decision) {
+        addToast('No action (decision is null)', 'info')
+      } else {
+        const side = String(decision.action ?? '?').toUpperCase()
+        const entry = Number(decision.entry ?? 0).toFixed(2)
+        const sl = Number(decision.stop_loss ?? 0).toFixed(2)
+        const tp = Number(decision.take_profit ?? 0).toFixed(2)
+        addToast(`${side} @ ${entry} | SL: ${sl} | TP: ${tp}`, 'info')
+      }
     } catch (err: unknown) {
       addToast('Test failed: ' + (err instanceof Error ? err.message : String(err)), 'error')
     }
-  }, [nodes, edges, addToast])
+  }, [nodes, edges, addToast, testBid, testAsk])
 
   if (loading) {
     return (
@@ -228,7 +267,7 @@ export default function StrategyBuilder() {
   return (
     <div className="flex h-screen bg-canvas-dark">
       {/* Toolbar */}
-      <Toolbar onDragStart={onDragStart} />
+      <Toolbar />
 
       {/* Main Canvas Area */}
       <div className="flex-1 flex flex-col relative">
@@ -277,7 +316,7 @@ export default function StrategyBuilder() {
         </div>
 
         {/* Canvas */}
-        <div className="flex-1 relative overflow-hidden">
+        <div ref={reactFlowWrapper} className="flex-1 relative overflow-hidden" onDragOver={onDragOver} onDrop={onDrop}>
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -309,6 +348,28 @@ export default function StrategyBuilder() {
           <span className="text-hairline-on-dark">|</span>
           <span>{edges.length} edges</span>
           <div className="flex-1" />
+          <label className="text-xs text-muted flex items-center gap-1">
+            Bid:
+            <input
+              type="number"
+              value={testBid}
+              onChange={e => setTestBid(e.target.value)}
+              placeholder="e.g. 2300"
+              className="w-20 px-2 py-1 text-xs bg-canvas-dark border border-hairline-on-dark rounded text-body outline-none"
+              step={0.01}
+            />
+          </label>
+          <label className="text-xs text-muted flex items-center gap-1">
+            Ask:
+            <input
+              type="number"
+              value={testAsk}
+              onChange={e => setTestAsk(e.target.value)}
+              placeholder="e.g. 2300.5"
+              className="w-20 px-2 py-1 text-xs bg-canvas-dark border border-hairline-on-dark rounded text-body outline-none"
+              step={0.01}
+            />
+          </label>
           <button
             onClick={handleTest}
             className="px-3 py-1 text-xs bg-primary/20 text-primary border border-primary/50 rounded cursor-pointer disabled:opacity-50"

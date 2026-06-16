@@ -18,10 +18,10 @@ const NODE_ITEMS: ToolbarNode[] = [
 ]
 
 interface ToolbarProps {
-  onDragStart: (type: string) => void
+  onDragStart?: (type: string) => void
 }
 
-export default function Toolbar({ onDragStart }: ToolbarProps) {
+export default function Toolbar({ onDragStart: _unused }: ToolbarProps) {
   return (
     <div className="w-56 bg-surface-card-dark border-r border-hairline-on-dark flex flex-col">
       <div className="p-3 border-b border-hairline-on-dark">
@@ -33,9 +33,8 @@ export default function Toolbar({ onDragStart }: ToolbarProps) {
             key={item.type}
             draggable
             onDragStart={(e) => {
-              e.dataTransfer.setData('application/json', JSON.stringify({ type: item.type }))
+              e.dataTransfer.setData('application/reactflow', item.type)
               e.dataTransfer.effectAllowed = 'move'
-              onDragStart(item.type)
             }}
             className="flex items-center gap-3 px-3 py-2.5 bg-surface-elevated-dark border border-hairline-on-dark rounded-md cursor-move hover:bg-surface-card-dark transition-colors group"
           >
