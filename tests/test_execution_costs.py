@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from app import storage
 from app.config import settings
 from app.multibot.db import migrate
@@ -160,12 +162,13 @@ def test_close_position_deducts_commission(tmp_path):
 
     # PnL gross = (2310 - 2300) * 1 * 100 = 1000
     # Commission = 1.0 * 3.5 = 3.5
-    # Net PnL = 1000 - 3.5 = 996.5
+    # Spread cost = (2310.5 - 2310) * 1 * 100 * 0.5 = 25.0
+    # Net PnL = 1000 - 3.5 - 25.0 = 971.5
     assert closed["pnl"] == 1000.0, f"gross pnl={closed['pnl']}"
     assert closed["commission"] == 3.5, f"commission={closed['commission']}"
-    assert closed["net_pnl"] == 996.5, f"net_pnl={closed['net_pnl']}"
+    assert closed["net_pnl"] == 971.5, f"net_pnl={closed['net_pnl']}"
     assert closed["status"] == "closed"
-    assert wallet["balance"] == 10996.5, f"balance={wallet['balance']}"
+    assert wallet["balance"] == 10971.5, f"balance={wallet['balance']}"
     assert wallet["total_commission"] == 3.5
 
 
@@ -205,9 +208,10 @@ def test_close_position_spread_cost_tracked(tmp_path):
     # PnL gross = (2295 - 2300) * (-1) * 1 * 100 = 500
     # Commission = 0
     # Spread cost = (2295.3 - 2295) * 1 * 100 * 0.5 = 15
+    # Net PnL = 500 - 0 - 15 = 485
     assert closed["pnl"] == 500.0
-    assert closed["spread_cost"] > 0
-    assert closed["net_pnl"] == 500.0  # no commission, so net = gross
+    assert closed["spread_cost"] == pytest.approx(15.0, rel=1e-9)
+    assert closed["net_pnl"] == pytest.approx(485.0, rel=1e-9)
 
 
 def test_manual_open_close_costs(tmp_path):

@@ -28,6 +28,12 @@ def default_parameters() -> dict[str, Any]:
         "allow_tested_once": True,
         "require_m5_confirmation": False,
         "ob_max_age_candles": 20,
+        "min_rr": 1.5,
+        "sl_atr_multiple": 1.5,
+        "tp_atr_multiple": 3.0,
+        "rsi_oversold": 30.0,
+        "rsi_overbought": 70.0,
+        "rsi_trend_filter": True,
         "daily_loss_limit_percent": 0.03,
         "max_consecutive_losses": 3,
         "trailing_enabled": False,
@@ -284,7 +290,7 @@ def migrate() -> dict[str, Any]:
                 )
 
         conn.execute("INSERT OR IGNORE INTO bot_runtime_state(bot_id, updated_at) VALUES(?, ?)", (bot_id, now))
-        conn.execute("INSERT OR REPLACE INTO multibot_runtime_settings(key, value, updated_at) VALUES('schema_version', '2.5', ?)", (now,))
+        conn.execute("INSERT OR REPLACE INTO multibot_runtime_settings(key, value, updated_at) VALUES('schema_version', '2.5.1', ?)", (now,))
     return get_status()
 
 

@@ -17,6 +17,7 @@ from app.multibot.db import default_parameters, json_text
 # ── Execution Realism Helpers ──
 
 _last_tick_ts: dict[str, int] = {}
+_TF_SECONDS = {"M1": 60, "M5": 300, "M15": 900, "H1": 3600}
 
 
 def _gaussian_slippage(sigma_pips: float, max_pips: float) -> float:
@@ -239,7 +240,7 @@ def _close_position(
     else:
         commission = 0.0
         spread_cost = 0.0
-    net_pnl = round(pnl - commission, 2)
+    net_pnl = round(pnl - commission - spread_cost, 2)
 
     execution_detail = json_text({
         "commission": commission,
@@ -332,16 +333,20 @@ def _evaluate_bot(conn, bot: dict[str, Any], tick: dict[str, Any], now: int) -> 
             if p["stop_loss"] is not None and bid <= float(p["stop_loss"]):
                 slip = _gaussian_slippage(sigma, max_slip)
                 _close_position(conn, p, bid, "sl_hit", now, params, bid, ask, slip)
-            elif p["take_profit"] is not None and bid >= float(p["take_profit"]):
+                return
+            if p["take_profit"] is not None and bid >= float(p["take_profit"]):
                 slip = _gaussian_slippage(sigma, max_slip)
                 _close_position(conn, p, bid, "tp_hit", now, params, bid, ask, slip)
+                return
         else:
             if p["stop_loss"] is not None and ask >= float(p["stop_loss"]):
                 slip = _gaussian_slippage(sigma, max_slip)
                 _close_position(conn, p, ask, "sl_hit", now, params, bid, ask, slip)
-            elif p["take_profit"] is not None and ask <= float(p["take_profit"]):
+                return
+            if p["take_profit"] is not None and ask <= float(p["take_profit"]):
                 slip = _gaussian_slippage(sigma, max_slip)
                 _close_position(conn, p, ask, "tp_hit", now, params, bid, ask, slip)
+                return
         # Trailing stop: move SL toward price after position still open
         _trail_stop(conn, p, bid, ask, params, now)
         return
@@ -434,7 +439,7 @@ def _evaluate_bot(conn, bot: dict[str, Any], tick: dict[str, Any], now: int) -> 
     lot = _round_lot(risk_usd / (risk_distance * float(params["contract_size"])), float(params["lot_step"]), float(params["min_lot"]), float(params["max_lot"]))
     if lot <= 0:
         return
-    expiry_seconds = int(params["expiry_candles"]) * (900 if bot["timeframe"] == "M15" else 300)
+    expiry_seconds = int(params["expiry_candles"]) * _TF_SECONDS.get(bot["timeframe"], 300)
     cur = conn.execute(
         """
         INSERT INTO bot_pending_orders(bot_id,wallet_id,ob_key,symbol,timeframe,side,entry,stop_loss,take_profit,risk_reward,risk_percent,lot,status,created_at,expires_at,updated_at)
