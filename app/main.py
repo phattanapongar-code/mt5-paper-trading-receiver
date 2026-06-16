@@ -5,6 +5,7 @@ import base64
 import json
 import logging
 import time
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -34,10 +35,22 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Application lifespan — startup and graceful shutdown."""
     health_task = asyncio.create_task(_health_monitor())
+    report_task = asyncio.create_task(_report_scheduler())
+    tg_poll_task = asyncio.create_task(_telegram_poll_loop())
     yield
     health_task.cancel()
+    report_task.cancel()
+    tg_poll_task.cancel()
     try:
         await health_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await report_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await tg_poll_task
     except asyncio.CancelledError:
         pass
     await alert_engine.close()
@@ -119,6 +132,37 @@ async def _health_monitor() -> None:
                 alert_engine.notify_health("online", f"Sender reconnected\nLast tick: {last_received_at}")
             else:
                 alert_engine.notify_health("offline", f"No ticks received for {now - last_received_at}s\nLast tick: {last_received_at}")
+
+
+async def _telegram_poll_loop() -> None:
+    try:
+        from app.telegram_bot import poll_loop
+        await poll_loop()
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception("Telegram poll loop error")
+
+
+async def _report_scheduler() -> None:
+    while True:
+        await asyncio.sleep(60)
+        try:
+            day = datetime.now(timezone.utc).date().isoformat()
+            key = f"report.sent.{day}"
+            row = storage.query_one("SELECT value FROM multibot_runtime_settings WHERE key=?", (key,))
+            if row:
+                continue
+            from app.reporter import generate_daily_reports
+            messages = await asyncio.to_thread(generate_daily_reports)
+            for msg in messages:
+                alert_engine._fire(msg, category="report")
+            storage.execute("INSERT OR REPLACE INTO multibot_runtime_settings(key,value,updated_at) VALUES(?,?,?)",
+                            (key, "1", int(time.time())))
+            if messages:
+                logger.info("Daily report sent: %d bots", len(messages))
+        except Exception:
+            logger.exception("Report scheduler error")
 
 
 async def broadcast(payload: dict[str, Any]) -> None:
@@ -436,6 +480,7 @@ def cancel_pending_order(order_id: int, bot_id: int | None = None) -> dict[str, 
         alert_engine.notify_pending_cancelled(
             str(bot_row["name"]) if bot_row else "?",
             str(order["symbol"]), str(order["side"]), "manual_cancel", float(order["entry"]),
+            bot_id=order["bot_id"],
         )
         return dict(conn.execute("SELECT * FROM bot_pending_orders WHERE id=?", (order_id,)).fetchone())
 
@@ -705,6 +750,7 @@ if _token_row and _chat_row:
         enabled=(_enabled_row["value"] if _enabled_row else "0") == "1",
         enabled_categories=_cats,
     )
+    alert_engine.load_bot_chat_ids()
 
 
 @app.get("/api/alerts/config")
@@ -718,7 +764,7 @@ def get_alert_config() -> dict[str, Any]:
         "bot_token": token["value"] if token else "",
         "chat_id": chat["value"] if chat else "",
         "enabled": (enabled["value"] if enabled else "0") == "1",
-        "enabled_categories": cats if cats else ["trade", "risk", "error", "health", "pending", "trail"],
+        "enabled_categories": cats if cats else ["trade", "risk", "error", "health", "pending", "trail", "report"],
     }
 
 
@@ -735,7 +781,7 @@ def save_alert_config(req: AlertConfigRequest) -> dict[str, Any]:
     storage.execute("INSERT OR REPLACE INTO multibot_runtime_settings(key,value,updated_at) VALUES('alert.bot_token',?,?)", (req.bot_token, now))
     storage.execute("INSERT OR REPLACE INTO multibot_runtime_settings(key,value,updated_at) VALUES('alert.chat_id',?,?)", (req.chat_id, now))
     storage.execute("INSERT OR REPLACE INTO multibot_runtime_settings(key,value,updated_at) VALUES('alert.enabled',?,?)", ("1" if req.enabled else "0", now))
-    cats = req.enabled_categories or ["trade", "risk", "error", "health", "pending", "trail"]
+    cats = req.enabled_categories or ["trade", "risk", "error", "health", "pending", "trail", "report"]
     storage.execute("INSERT OR REPLACE INTO multibot_runtime_settings(key,value,updated_at) VALUES('alert.enabled_categories',?,?)", (json.dumps(cats), now))
     alert_engine.configure(req.bot_token, req.chat_id, req.enabled, cats)
     return {"ok": True}
@@ -745,3 +791,25 @@ def save_alert_config(req: AlertConfigRequest) -> dict[str, Any]:
 async def test_alert() -> dict[str, Any]:
     ok = await alert_engine.test()
     return {"ok": ok, "message": "Test alert sent" if ok else "Alert sending failed"}
+
+
+@app.get("/api/bots/{bot_id}/alert-chat")
+def get_bot_alert_chat(bot_id: int) -> dict[str, Any]:
+    row = storage.query_one("SELECT value FROM multibot_runtime_settings WHERE key=?", (f"alert.chat_id.bot_{bot_id}",))
+    return {"bot_id": bot_id, "chat_id": row["value"] if row else ""}
+
+
+class BotAlertChatRequest(BaseModel):
+    chat_id: str = ""
+
+
+@app.put("/api/bots/{bot_id}/alert-chat")
+def set_bot_alert_chat(bot_id: int, req: BotAlertChatRequest) -> dict[str, Any]:
+    now = int(time.time())
+    if req.chat_id:
+        storage.execute("INSERT OR REPLACE INTO multibot_runtime_settings(key,value,updated_at) VALUES(?,?,?)",
+                        (f"alert.chat_id.bot_{bot_id}", req.chat_id, now))
+    else:
+        storage.execute("DELETE FROM multibot_runtime_settings WHERE key=?", (f"alert.chat_id.bot_{bot_id}",))
+    alert_engine.configure_bot(bot_id, req.chat_id)
+    return {"ok": True, "bot_id": bot_id, "chat_id": req.chat_id}

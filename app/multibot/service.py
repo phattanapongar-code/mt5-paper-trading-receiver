@@ -330,7 +330,7 @@ def open_position(bot_id: int, side: str, lot: float, stop_loss: float | None, t
         pos = dict(conn.execute("SELECT *, exit_price AS \"exit\" FROM bot_positions WHERE id=?", (cur.lastrowid,)).fetchone())
         alert_engine.notify_trade_open(
             str(bot.get("name", "?")), side, entry, stop_loss or 0, take_profit or 0, lot,
-            sym, slippage_pips=slip_pips, source="manual",
+            sym, slippage_pips=slip_pips, source="manual", bot_id=bot_id,
         )
         return pos
 
@@ -409,7 +409,7 @@ def close_position(bot_id: int, tick: dict[str, Any], note: str = "manual_close"
         alert_engine.notify_trade_close(
             bot_name, side, pnl, note, sym, r_multiple=r_multiple,
             commission=commission, slippage=slip_pts, spread_cost=spread_cost,
-            net_pnl=net_pnl, source="manual",
+            net_pnl=net_pnl, source="manual", bot_id=bot_id,
         )
         return pos
 

@@ -204,7 +204,7 @@ export default function Settings() {
             <div>
               <label className="block text-xs text-muted mb-1.5">Alert Categories</label>
               <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-                {['trade', 'risk', 'error', 'health', 'pending', 'trail'].map(cat => (
+                {['trade', 'risk', 'error', 'health', 'pending', 'trail', 'report'].map(cat => (
                   <label key={cat} className="flex items-center gap-1.5 cursor-pointer">
                     <input type="checkbox" checked={alertCfg.enabled_categories?.includes(cat) ?? true}
                       onChange={(e) => {

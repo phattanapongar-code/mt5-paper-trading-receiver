@@ -8,6 +8,8 @@ import time
 
 import aiohttp
 
+from app import storage
+
 logger = logging.getLogger(__name__)
 
 _alert_loop: asyncio.AbstractEventLoop | None = None
@@ -25,16 +27,21 @@ def _get_alert_loop() -> asyncio.AbstractEventLoop:
     return _alert_loop
 
 
+def _chat_id_key(bot_id: int) -> str:
+    return f"alert.chat_id.bot_{bot_id}"
+
+
 class AlertEngine:
     def __init__(self) -> None:
         self.bot_token: str | None = None
         self.chat_id: str | None = None
         self.enabled: bool = False
-        self._enabled_categories: set[str] = {"trade", "risk", "error", "health", "pending", "trail"}
+        self._enabled_categories: set[str] = {"trade", "risk", "error", "health", "pending", "trail", "report"}
         self._last_sent: float = 0.0
         self._rate_limit_until: float = 0.0
         self._queue: asyncio.Queue | None = None
         self._worker_task: asyncio.Task | None = None
+        self._bot_chat_ids: dict[int, str] = {}
 
     def configure(self, bot_token: str, chat_id: str, enabled: bool = True, enabled_categories: list[str] | None = None) -> None:
         self.bot_token = bot_token
@@ -42,6 +49,29 @@ class AlertEngine:
         self.enabled = enabled
         if enabled_categories is not None:
             self._enabled_categories = set(enabled_categories)
+
+    def configure_bot(self, bot_id: int, chat_id: str) -> None:
+        if chat_id:
+            self._bot_chat_ids[bot_id] = chat_id
+        else:
+            self._bot_chat_ids.pop(bot_id, None)
+
+    def load_bot_chat_ids(self) -> None:
+        self._bot_chat_ids.clear()
+        rows = storage.query_all(
+            "SELECT key, value FROM multibot_runtime_settings WHERE key LIKE 'alert.chat_id.bot_%'"
+        ) or []
+        for row in rows:
+            try:
+                bot_id = int(row["key"].rsplit("_", 1)[1])
+                self._bot_chat_ids[bot_id] = row["value"]
+            except (ValueError, IndexError):
+                pass
+
+    def _resolve_chat_id(self, bot_id: int | None) -> str | None:
+        if bot_id is not None and bot_id in self._bot_chat_ids:
+            return self._bot_chat_ids[bot_id]
+        return self.chat_id
 
     def _ensure_worker(self) -> None:
         if self._queue is not None:
@@ -53,15 +83,16 @@ class AlertEngine:
     async def _queue_worker(self) -> None:
         while True:
             try:
-                message = await self._queue.get()
-                await self._send_with_ratelimit(message)
+                msg_data = await self._queue.get()
+                chat_id, message = msg_data["chat_id"], msg_data["message"]
+                await self._send_with_ratelimit(chat_id, message)
                 self._queue.task_done()
             except asyncio.CancelledError:
                 break
             except Exception:
                 logger.exception("Alert queue worker error")
 
-    async def _send_with_ratelimit(self, message: str) -> bool:
+    async def _send_with_ratelimit(self, chat_id: str, message: str) -> bool:
         now = time.time()
         if now < self._rate_limit_until:
             await asyncio.sleep(self._rate_limit_until - now)
@@ -69,17 +100,17 @@ class AlertEngine:
         if wait > 0:
             await asyncio.sleep(wait)
         self._last_sent = time.time()
-        return await self.send(message)
+        return await self._send(chat_id, message)
 
-    async def send(self, message: str, retries: int = 1) -> bool:
-        if not self.enabled or not self.bot_token or not self.chat_id:
+    async def _send(self, chat_id: str, message: str, retries: int = 1) -> bool:
+        if not self.enabled or not self.bot_token or not chat_id:
             return False
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
         for attempt in range(1 + retries):
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.post(url, json={
-                        "chat_id": self.chat_id,
+                        "chat_id": chat_id,
                         "text": message,
                         "parse_mode": "HTML",
                         "disable_web_page_preview": True,
@@ -103,21 +134,32 @@ class AlertEngine:
                 await asyncio.sleep(1)
         return False
 
-    def _fire(self, message: str, category: str = "trade") -> None:
-        if not self.enabled or not self.bot_token or not self.chat_id:
+    def _fire(self, message: str, category: str = "trade", bot_id: int | None = None) -> None:
+        if not self.enabled or not self.bot_token:
             return
         if category not in self._enabled_categories:
             return
+        chat_id = self._resolve_chat_id(bot_id)
+        if not chat_id:
+            return
         self._ensure_worker()
         loop = _get_alert_loop()
-        asyncio.run_coroutine_threadsafe(self._queue.put(message), loop)
+        asyncio.run_coroutine_threadsafe(self._queue.put({"chat_id": chat_id, "message": message}), loop)
+
+    async def send_direct(self, chat_id: str, message: str) -> bool:
+        if not self.enabled or not self.bot_token or not chat_id:
+            return False
+        return await self._send(chat_id, message)
+
+    async def send(self, message: str, retries: int = 1) -> bool:
+        return await self._send(self.chat_id or "", message, retries)
 
     # ── Trade Alerts ──
 
     def notify_trade_open(
         self,
         bot_name: str, side: str, entry: float, sl: float, tp: float, lot: float,
-        symbol: str, slippage_pips: float = 0.0, source: str = "auto",
+        symbol: str, slippage_pips: float = 0.0, source: str = "auto", bot_id: int | None = None,
     ) -> None:
         emoji = "\U0001f7e2" if side == "buy" else "\U0001f534"
         tag = "" if source == "auto" else " [Manual]"
@@ -128,14 +170,14 @@ class AlertEngine:
         ]
         if slippage_pips:
             parts.append(f"Slippage: {slippage_pips:+.2f} pips")
-        self._fire("\n".join(parts))
+        self._fire("\n".join(parts), bot_id=bot_id)
 
     def notify_trade_close(
         self,
         bot_name: str, side: str, pnl: float, reason: str, symbol: str,
         r_multiple: float = 0.0,
         commission: float = 0.0, slippage: float = 0.0, spread_cost: float = 0.0,
-        net_pnl: float | None = None, source: str = "auto",
+        net_pnl: float | None = None, source: str = "auto", bot_id: int | None = None,
     ) -> None:
         net = net_pnl if net_pnl is not None else pnl
         emoji = "\u2705" if net > 0 else "\u274c"
@@ -157,14 +199,14 @@ class AlertEngine:
                 f"Bot: {bot_name}\n"
                 f"PnL: <b>{pnl:+.2f}</b>  |  R: {r_multiple:+.2f}"
             )
-        self._fire(f"{header}\n{body}")
+        self._fire(f"{header}\n{body}", bot_id=bot_id)
 
     # ── Pending Order Alerts ──
 
     def notify_pending_created(
         self,
         bot_name: str, symbol: str, side: str, entry: float, sl: float, tp: float,
-        lot: float, expiry: int, strategy: str,
+        lot: float, expiry: int, strategy: str, bot_id: int | None = None,
     ) -> None:
         emoji = "\U0001f7e2" if side == "buy" else "\U0001f534"
         from datetime import datetime
@@ -174,12 +216,13 @@ class AlertEngine:
             f"Bot: {bot_name}\n"
             f"SL: {sl} | TP: {tp}\n"
             f"Strategy: {strategy} | Expiry: ~{expiry_str}",
-            category="pending",
+            category="pending", bot_id=bot_id,
         )
 
     def notify_pending_cancelled(
         self,
         bot_name: str, symbol: str, side: str, reason: str, entry: float,
+        bot_id: int | None = None,
     ) -> None:
         reason_clean = reason.replace("_", " ").title()
         self._fire(
@@ -187,7 +230,7 @@ class AlertEngine:
             f"Bot: {bot_name}\n"
             f"{side.upper()} {symbol} @ {entry}\n"
             f"Reason: {reason_clean}",
-            category="pending",
+            category="pending", bot_id=bot_id,
         )
 
     # ── SL/Trail Alerts ──
@@ -195,6 +238,7 @@ class AlertEngine:
     def notify_trail_update(
         self,
         bot_name: str, symbol: str, side: str, old_sl: float, new_sl: float, reason: str,
+        bot_id: int | None = None,
     ) -> None:
         reason_clean = reason.title()
         self._fire(
@@ -202,7 +246,7 @@ class AlertEngine:
             f"Bot: {bot_name}\n"
             f"{side.upper()} {symbol}\n"
             f"SL: {old_sl} \u2192 {new_sl}",
-            category="trail",
+            category="trail", bot_id=bot_id,
         )
 
     # ── Drawdown Alert ──
@@ -210,22 +254,23 @@ class AlertEngine:
     def notify_drawdown(
         self,
         bot_name: str, drawdown_pct: float, balance: float, limit_pct: float,
+        bot_id: int | None = None,
     ) -> None:
         self._fire(
             f"\u26a0\ufe0f <b>Drawdown Alert</b>\n"
             f"Bot: {bot_name}\n"
             f"Drawdown: {drawdown_pct:.1f}% (limit: {limit_pct:.0f}%)\n"
             f"Balance: {balance:.2f}",
-            category="risk",
+            category="risk", bot_id=bot_id,
         )
 
     # ── Error / Risk / Health ──
 
-    def notify_error(self, bot_name: str, error: str) -> None:
-        self._fire(f"\U0001f6a8 <b>Bot Error</b>\nBot: {bot_name}\nError: {error}")
+    def notify_error(self, bot_name: str, error: str, bot_id: int | None = None) -> None:
+        self._fire(f"\U0001f6a8 <b>Bot Error</b>\nBot: {bot_name}\nError: {error}", bot_id=bot_id)
 
-    def notify_risk(self, bot_name: str, alert_type: str, detail: str) -> None:
-        self._fire(f"\u26a0\ufe0f <b>{alert_type}</b>\nBot: {bot_name}\n{detail}")
+    def notify_risk(self, bot_name: str, alert_type: str, detail: str, bot_id: int | None = None) -> None:
+        self._fire(f"\u26a0\ufe0f <b>{alert_type}</b>\nBot: {bot_name}\n{detail}", bot_id=bot_id)
 
     def notify_health(self, alert_type: str, detail: str) -> None:
         emoji = "\U0001f534" if alert_type == "offline" else "\U0001f7e2"

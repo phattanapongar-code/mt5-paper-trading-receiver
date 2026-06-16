@@ -24,6 +24,7 @@ export default function BotDetail() {
   const [cloneName, setCloneName] = useState('')
   const [showCloneModal, setShowCloneModal] = useState(false)
   const [symbols, setSymbols] = useState<string[]>([])
+  const [alertChatId, setAlertChatId] = useState('')
 
   const botStats: BotStats = useMemo(() => {
     const closed = trades.filter(t => t.status === 'closed')
@@ -57,18 +58,20 @@ export default function BotDetail() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [stateRes, walletRes, tradesRes, signalsRes, costsRes] = await Promise.all([
+      const [stateRes, walletRes, tradesRes, signalsRes, costsRes, alertChatRes] = await Promise.all([
         client.get<BotState>(`/bots/${botId}/state`),
         client.get<Wallet>(`/bots/${botId}/wallet`),
         client.get<Trade[]>(`/bots/${botId}/trades`, { params: { limit: 20 } }),
         client.get<BotSignalLog[]>(`/bots/${botId}/signals`, { params: { limit: 50 } }),
         client.get<BotCosts>(`/bots/${botId}/costs`).catch(() => null),
+        client.get<{ chat_id: string }>(`/bots/${botId}/alert-chat`).catch(() => null),
       ])
       setState(stateRes.data)
       setWallet(walletRes.data)
       setTrades(tradesRes.data)
       setSignals(signalsRes.data)
       if (costsRes?.data) setCosts(costsRes.data)
+      if (alertChatRes?.data) setAlertChatId(alertChatRes.data.chat_id)
     } catch {
       // ignore
     } finally {
@@ -498,6 +501,25 @@ export default function BotDetail() {
               <textarea value={paramsText} onChange={(e) => setParamsText(e.target.value)}
                 className="w-full h-48 bg-canvas-dark border border-surface-400 rounded text-xs font-mono text-body p-3 mt-2 focus:outline-none focus:border-primary resize-none" />
             </details>
+
+            <div className="mt-4 pt-4 border-t border-hairline-on-dark">
+              <h2 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Telegram Alert Chat</h2>
+              <div className="flex gap-2">
+                <input value={alertChatId}
+                  onChange={e => setAlertChatId(e.target.value)}
+                  placeholder="-100123456789 (leave empty = use global)"
+                  className="flex-1 px-3 py-2 bg-surface-elevated-dark border border-hairline-on-dark rounded text-sm text-body font-mono focus:outline-none focus:border-primary" />
+                <button onClick={async () => {
+                  try {
+                    await client.put(`/bots/${botId}/alert-chat`, { chat_id: alertChatId })
+                    addToast('Alert chat saved', 'success')
+                  } catch { addToast('Failed to save', 'error') }
+                }} className="px-3 py-1.5 text-xs bg-primary/10 text-primary border border-primary/50 rounded cursor-pointer">
+                  Save
+                </button>
+              </div>
+              <p className="text-xs text-muted mt-1">Set a custom Telegram chat for this bot. Leave empty to use the global chat from Settings.</p>
+            </div>
           </div>
           <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-4">
             <h2 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Stats</h2>
