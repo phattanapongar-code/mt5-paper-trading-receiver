@@ -52,6 +52,7 @@ const Settings = lazy(() => import('./pages/Settings'))
 const ReplayPage = lazy(() => import('./pages/Replay'))
 const BacktestPage = lazy(() => import('./pages/Backtest'))
 const BacktestOptimizePage = lazy(() => import('./pages/BacktestOptimize'))
+const StrategyBuilder = lazy(() => import('./pages/StrategyBuilder'))
 
 const LoadingFallback = () => (
   <div className="flex min-h-screen items-center justify-center bg-canvas-dark">
@@ -133,6 +134,7 @@ function AppRoutes() {
         <Route path="/replay" element={<ReplayPage />} />
         <Route path="/backtest" element={<BacktestPage />} />
         <Route path="/backtest/optimize" element={<BacktestOptimizePage />} />
+        <Route path="/strategies/builder" element={<StrategyBuilder />} />
       </Route>
       <Route path="*" element={<NotFoundPage />} />
     </Routes>

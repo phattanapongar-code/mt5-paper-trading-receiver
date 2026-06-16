@@ -39,3 +39,12 @@ register(StrategyMeta(
     description="Enter on retest of strong order blocks in trend direction. Uses M15 order blocks with trend filtering.",
     decide=_trend_ob.decide,
 ))
+
+from . import visual as _visual
+
+register(StrategyMeta(
+    id="visual",
+    name="Visual Strategy",
+    description="Node-graph strategy built with the visual drag-and-drop editor.",
+    decide=_visual.decide,
+))

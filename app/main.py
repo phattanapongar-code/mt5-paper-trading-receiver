@@ -657,6 +657,10 @@ app.include_router(multibot_router)
 # Backtest router
 app.include_router(backtest_router)
 
+# Visual strategy builder router
+from app.multibot.visual_router import router as visual_router
+app.include_router(visual_router)
+
 # Ensure at least one bot exists (seeds "Paper Trading" bot if DB is empty)
 multibot.ensure_default_bot()
 

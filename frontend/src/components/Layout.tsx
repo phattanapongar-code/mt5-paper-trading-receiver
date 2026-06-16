@@ -3,7 +3,7 @@ import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useBotContext } from '../context/BotContext'
 import { useTheme } from '../context/ThemeContext'
-import { FiCircle, FiBarChart2, FiClipboard, FiDollarSign, FiBell, FiTrendingUp, FiSettings, FiPlay, FiSearch, FiClock, FiLayers, FiMenu, FiChevronRight, FiChevronLeft, FiX, FiSun, FiMoon, FiLogOut, FiActivity } from 'react-icons/fi'
+import { FiCircle, FiBarChart2, FiClipboard, FiDollarSign, FiBell, FiTrendingUp, FiSettings, FiPlay, FiSearch, FiClock, FiLayers, FiMenu, FiChevronRight, FiChevronLeft, FiX, FiSun, FiMoon, FiLogOut, FiActivity, FiCode } from 'react-icons/fi'
 import { FaRobot, FaBalanceScale } from 'react-icons/fa'
 import type { IconType } from 'react-icons'
 import type { Bot } from '../types/api'
@@ -30,6 +30,7 @@ const bottomNavItems: { to: string; label: string; icon: IconType }[] = [
   { to: '/settings', label: 'Settings', icon: FiSettings },
   { to: '/replay', label: 'Replay', icon: FiPlay },
   { to: '/backtest', label: 'Backtest', icon: FiSearch },
+  { to: '/strategies/builder', label: 'Strategy Builder', icon: FiCode },
 ]
 
 const STRATEGY_COLORS: Record<string, string> = {
