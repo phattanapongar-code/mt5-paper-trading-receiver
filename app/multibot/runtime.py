@@ -323,32 +323,33 @@ def _evaluate_bot(conn, bot: dict[str, Any], tick: dict[str, Any], now: int) -> 
         ask *= gap_adj
         spread = ask - bid
 
-    position = conn.execute("SELECT * FROM bot_positions WHERE bot_id=? AND status='open' ORDER BY id DESC LIMIT 1", (bot_id,)).fetchone()
-    if position:
-        p = dict(position)
-        pip_val = _pip_value(str(p.get("symbol", "XAUUSD")))
-        sigma = float(params.get("slippage_sigma", 0.15))
-        max_slip = float(params.get("slippage_max_pips", 0.5))
-        if p["side"] == "buy":
-            if p["stop_loss"] is not None and bid <= float(p["stop_loss"]):
-                slip = _gaussian_slippage(sigma, max_slip)
-                _close_position(conn, p, bid, "sl_hit", now, params, bid, ask, slip)
-                return
-            if p["take_profit"] is not None and bid >= float(p["take_profit"]):
-                slip = _gaussian_slippage(sigma, max_slip)
-                _close_position(conn, p, bid, "tp_hit", now, params, bid, ask, slip)
-                return
-        else:
-            if p["stop_loss"] is not None and ask >= float(p["stop_loss"]):
-                slip = _gaussian_slippage(sigma, max_slip)
-                _close_position(conn, p, ask, "sl_hit", now, params, bid, ask, slip)
-                return
-            if p["take_profit"] is not None and ask <= float(p["take_profit"]):
-                slip = _gaussian_slippage(sigma, max_slip)
-                _close_position(conn, p, ask, "tp_hit", now, params, bid, ask, slip)
-                return
-        # Trailing stop: move SL toward price after position still open
-        _trail_stop(conn, p, bid, ask, params, now)
+    positions = conn.execute("SELECT * FROM bot_positions WHERE bot_id=? AND status='open' ORDER BY id ASC", (bot_id,)).fetchall()
+    if positions:
+        for row in positions:
+            p = dict(row)
+            pip_val = _pip_value(str(p.get("symbol", "XAUUSD")))
+            sigma = float(params.get("slippage_sigma", 0.15))
+            max_slip = float(params.get("slippage_max_pips", 0.5))
+            if p["side"] == "buy":
+                if p["stop_loss"] is not None and bid <= float(p["stop_loss"]):
+                    slip = _gaussian_slippage(sigma, max_slip)
+                    _close_position(conn, p, bid, "sl_hit", now, params, bid, ask, slip)
+                    continue
+                if p["take_profit"] is not None and bid >= float(p["take_profit"]):
+                    slip = _gaussian_slippage(sigma, max_slip)
+                    _close_position(conn, p, bid, "tp_hit", now, params, bid, ask, slip)
+                    continue
+            else:
+                if p["stop_loss"] is not None and ask >= float(p["stop_loss"]):
+                    slip = _gaussian_slippage(sigma, max_slip)
+                    _close_position(conn, p, ask, "sl_hit", now, params, bid, ask, slip)
+                    continue
+                if p["take_profit"] is not None and ask <= float(p["take_profit"]):
+                    slip = _gaussian_slippage(sigma, max_slip)
+                    _close_position(conn, p, ask, "tp_hit", now, params, bid, ask, slip)
+                    continue
+            # Trailing stop: move SL toward price after position still open
+            _trail_stop(conn, p, bid, ask, params, now)
         return
 
     pending = conn.execute("SELECT * FROM bot_pending_orders WHERE bot_id=? AND status='pending' ORDER BY id DESC LIMIT 1", (bot_id,)).fetchone()
