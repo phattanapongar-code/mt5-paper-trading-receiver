@@ -128,8 +128,7 @@ export default function BotDetail() {
     await client.post('/bots', {
       profile_id: state.bot.profile_id,
       name: cloneName,
-      strategy_type: state.bot.strategy_type,
-      strategy_version: state.bot.strategy_version,
+      visual_strategy_id: state.bot.visual_strategy_id,
       symbol: state.bot.symbol,
       timeframe: state.bot.timeframe,
       enabled: false,
@@ -176,7 +175,7 @@ export default function BotDetail() {
         <div className="flex items-center gap-3">
           <button onClick={() => navigate('/bots')} className="text-muted hover:text-body text-sm cursor-pointer">&larr;</button>
           <h1 className="text-lg font-semibold text-body">{bot.name}</h1>
-          <span className="text-xs font-mono text-muted">{bot.strategy_type} v{bot.strategy_version}</span>
+          <span className="text-xs font-mono text-muted">Visual</span>
           <span className="text-xs font-mono text-muted">{bot.symbol} {bot.timeframe}</span>
         </div>
         <div className="flex gap-2">

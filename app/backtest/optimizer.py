@@ -3,12 +3,12 @@ from __future__ import annotations
 from itertools import product
 from typing import Any
 
-from app.backtest.models import BacktestRequest, OptimizeRequest
+from app.backtest.models import BacktestRequest
 from app.backtest.engine import BacktestEngine
 
 
 class ParameterOptimizer:
-    def __init__(self, config: OptimizeRequest):
+    def __init__(self, config: BacktestRequest):
         self.config = config
 
     def run(self) -> dict[str, Any]:
@@ -22,7 +22,8 @@ class ParameterOptimizer:
             params = dict(zip(param_names, combo))
 
             bt_config = BacktestRequest(
-                strategy_type=self.config.strategy_type,
+                visual_strategy_id=self.config.visual_strategy_id,
+                graph=self.config.graph,
                 parameters=params,
                 symbol=self.config.symbol,
                 timeframe=self.config.timeframe,
@@ -51,7 +52,7 @@ class ParameterOptimizer:
 
         return {
             "ok": True,
-            "strategy_type": self.config.strategy_type,
+            "visual_strategy_id": self.config.visual_strategy_id,
             "param_ranges": self.config.param_ranges,
             "total_combinations": total,
             "optimization_metric": metric,

@@ -139,7 +139,7 @@ def test_close_position_deducts_commission(tmp_path):
         pid = conn.execute("SELECT id FROM profiles ORDER BY id DESC LIMIT 1").fetchone()[0]
         conn.execute(
             "INSERT INTO bots(profile_id,name,strategy_type,strategy_version,symbol,timeframe,enabled,parameters_json,created_at,updated_at) VALUES(?,?,?,?,?,?,1,?,?,?)",
-            (pid, "test_bot", "trend_ob", "v1", "XAUUSD", "M15", json_text(params), now, now),
+            (pid, "test_bot", "visual", "v1", "XAUUSD", "M15", json_text(params), now, now),
         )
         bid = conn.execute("SELECT id FROM bots ORDER BY id DESC LIMIT 1").fetchone()[0]
         conn.execute(
@@ -185,7 +185,7 @@ def test_close_position_spread_cost_tracked(tmp_path):
         pid = conn.execute("SELECT id FROM profiles ORDER BY id DESC LIMIT 1").fetchone()[0]
         conn.execute(
             "INSERT INTO bots(profile_id,name,strategy_type,strategy_version,symbol,timeframe,enabled,parameters_json,created_at,updated_at) VALUES(?,?,?,?,?,?,1,?,?,?)",
-            (pid, "test_bot2", "trend_ob", "v1", "XAUUSD", "M15", json_text(params), now, now),
+            (pid, "test_bot2", "visual", "v1", "XAUUSD", "M15", json_text(params), now, now),
         )
         bid = conn.execute("SELECT id FROM bots ORDER BY id DESC LIMIT 1").fetchone()[0]
         conn.execute(
@@ -228,7 +228,7 @@ def test_manual_open_close_costs(tmp_path):
         pid = conn.execute("SELECT id FROM profiles ORDER BY id DESC LIMIT 1").fetchone()[0]
         conn.execute(
             "INSERT INTO bots(profile_id,name,strategy_type,strategy_version,symbol,timeframe,enabled,parameters_json,created_at,updated_at) VALUES(?,?,?,?,?,?,1,?,?,?)",
-            (pid, "manual_bot", "trend_ob", "v1", "XAUUSD", "M15", json_text(params), now, now),
+            (pid, "manual_bot", "visual", "v1", "XAUUSD", "M15", json_text(params), now, now),
         )
         bid = conn.execute("SELECT id FROM bots ORDER BY id DESC LIMIT 1").fetchone()[0]
         conn.execute(
@@ -267,7 +267,7 @@ def test_execution_detail_json_format(tmp_path):
         pid = conn.execute("SELECT id FROM profiles ORDER BY id DESC LIMIT 1").fetchone()[0]
         conn.execute(
             "INSERT INTO bots(profile_id,name,strategy_type,strategy_version,symbol,timeframe,enabled,parameters_json,created_at,updated_at) VALUES(?,?,?,?,?,?,1,?,?,?)",
-            (pid, "det_bot", "trend_ob", "v1", "XAUUSD", "M15", json_text(params), now, now),
+            (pid, "det_bot", "visual", "v1", "XAUUSD", "M15", json_text(params), now, now),
         )
         bid = conn.execute("SELECT id FROM bots ORDER BY id DESC LIMIT 1").fetchone()[0]
         conn.execute(

@@ -53,7 +53,9 @@ def test_trend_returns_warming_up_without_enough_data(tmp_path):
 
 def test_stages_one_aligned_pending_after_zone_touch(tmp_path):
     _seed_bearish(tmp_path)
-    from app.multibot.runtime import process_tick_sync
+    import json
+    from app.multibot.visual_engine import execute_graph
+    from app.multibot.visual_router import ensure_table
     # Latest candle open_time after 320 inserts at 900s intervals is 319*900 = 287100
     # break_open_time must be within 20 candles (ob_max_age_candles default) of the latest candle
     recent_break = 287100 - 5 * 900  # 5 candles ago
@@ -72,14 +74,47 @@ def test_stages_one_aligned_pending_after_zone_touch(tmp_path):
     )
     # Set up a bot to evaluate
     migrate()
+    ensure_table()
+
+    # Create a visual strategy graph that processes bearish OB
+    graph = {
+        "nodes": [
+            {"id": "price_1", "type": "price", "data": {"params": {"value": "mid"}, "label": "Price"}},
+            {"id": "ob_1", "type": "ob_query", "data": {"params": {"side": "sell", "min_score": 6}, "label": "OB Query"}},
+            {"id": "age_1", "type": "ob_not_stale", "data": {"params": {"max_age_candles": 20}, "label": "Not Stale"}},
+            {"id": "range_1", "type": "ob_in_range", "data": {"params": {}, "label": "In Range"}},
+            {"id": "order_1", "type": "order", "data": {"params": {"side": "sell", "entry_style": "ob_boundary", "risk_percent": 1.0, "sl_atr_multiplier": 1.5, "tp_r_multiple": 2.0, "atr_period": 14}, "label": "Order"}},
+        ],
+        "edges": [
+            {"source": "ob_1", "target": "range_1"},
+            {"source": "price_1", "target": "range_1"},
+            {"source": "ob_1", "target": "age_1"},
+            {"source": "age_1", "target": "order_1"},
+            {"source": "range_1", "target": "order_1"},
+            {"source": "ob_1", "target": "order_1"},
+        ],
+    }
+
+    now = int(__import__("time").time())
+    storage.execute(
+        "INSERT INTO visual_strategies(name, description, graph_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+        ("test_bearish_ob", "", json.dumps(graph), now, now),
+    )
+    vs_id = storage.query_one("SELECT id FROM visual_strategies WHERE name='test_bearish_ob'")["id"]
+
     existing = storage.query_one("SELECT id FROM bots WHERE name='Paper Trading'")
     assert existing is not None, "Paper Trading bot should exist after migrate"
+    bot_id = existing["id"]
+
+    # Assign the visual strategy to the bot
+    storage.execute("UPDATE bots SET visual_strategy_id=?, strategy_type='visual' WHERE id=?", (vs_id, bot_id))
 
     # Enable the bot
-    storage.execute("UPDATE bots SET enabled=1 WHERE id=1")
+    storage.execute(f"UPDATE bots SET enabled=1 WHERE id={bot_id}")
     storage.execute("UPDATE profiles SET enabled=1 WHERE id=1")
 
     # Process a tick that touches the OB zone (180-184)
+    from app.multibot.runtime import process_tick_sync
     result = process_tick_sync({
         "type": "tick", "symbol": "XAUUSD", "bid": 182.0, "ask": 182.2,
         "timestamp": int(__import__("time").time()), "seq": 1
@@ -87,7 +122,7 @@ def test_stages_one_aligned_pending_after_zone_touch(tmp_path):
     assert result["processed_bots"] >= 1
 
     # Check that a pending order was created
-    pending = storage.query_one("SELECT * FROM bot_pending_orders WHERE bot_id=1 AND status='pending' ORDER BY id DESC LIMIT 1")
+    pending = storage.query_one(f"SELECT * FROM bot_pending_orders WHERE bot_id={bot_id} AND status='pending' ORDER BY id DESC LIMIT 1")
     assert pending is not None
     assert pending["side"] == "sell"
     # Entry is at OB low (bearish entry = ob_low)

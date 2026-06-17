@@ -71,12 +71,13 @@ def migrate() -> dict[str, Any]:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 profile_id INTEGER NOT NULL,
                 name TEXT NOT NULL UNIQUE,
-                strategy_type TEXT NOT NULL,
-                strategy_version TEXT NOT NULL,
+                strategy_type TEXT NOT NULL DEFAULT 'visual',
+                strategy_version TEXT NOT NULL DEFAULT 'v1',
                 symbol TEXT NOT NULL,
                 timeframe TEXT NOT NULL,
                 enabled INTEGER NOT NULL DEFAULT 0,
                 parameters_json TEXT NOT NULL DEFAULT '{}',
+                visual_strategy_id INTEGER,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
                 FOREIGN KEY(profile_id) REFERENCES profiles(id)
@@ -207,6 +208,11 @@ def migrate() -> dict[str, Any]:
         if "total_slippage" not in existing_w:
             conn.execute("ALTER TABLE wallets ADD COLUMN total_slippage REAL DEFAULT 0")
 
+        # Upgrade v2.6 — visual strategy column
+        existing_b = {row["name"] for row in conn.execute("PRAGMA table_info(bots)").fetchall()}
+        if "visual_strategy_id" not in existing_b:
+            conn.execute("ALTER TABLE bots ADD COLUMN visual_strategy_id INTEGER REFERENCES visual_strategies(id)")
+
         conn.execute(
             "INSERT OR IGNORE INTO profiles(name, description, enabled, created_at, updated_at) VALUES(?, ?, 1, ?, ?)",
             ("default", "Default profile", now, now),
@@ -222,7 +228,7 @@ def migrate() -> dict[str, Any]:
             else:
                 cur = conn.execute(
                     "INSERT INTO bots(profile_id, name, strategy_type, strategy_version, symbol, timeframe, enabled, parameters_json, created_at, updated_at) VALUES(?,?,?,?,?,?,0,?,?,?)",
-                    (profile_id, "Paper Trading", "trend_ob", "v1", settings.symbol, "M15", json_text(default_parameters()), now, now),
+                    (profile_id, "Paper Trading", "visual", "v1", settings.symbol, "M15", json_text(default_parameters()), now, now),
                 )
                 bot_id = cur.lastrowid
         else:

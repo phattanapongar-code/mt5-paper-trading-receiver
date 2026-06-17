@@ -201,6 +201,7 @@ export interface Bot {
   timeframe: string
   enabled: boolean
   parameters: Record<string, unknown>
+  visual_strategy_id?: number | null
   created_at: number
   runtime_updated_at?: number
 }
@@ -291,6 +292,7 @@ export interface CompareBot {
   strategy_version: string
   symbol: string
   timeframe: string
+  visual_strategy_id?: number | null
   initial_balance: number
   balance: number
   realized_pnl: number

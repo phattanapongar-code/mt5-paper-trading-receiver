@@ -4,7 +4,6 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from app.multibot import db, service
 from app.multibot.models import BotCreate, BotParameterUpdate, CloneBotRequest, ProfileCreate, RenameBotRequest, UpdateBotRequest, WalletResetRequest
 from app.multibot.runtime import hub
-from app.multibot.strategies import list_strategies
 from app import storage
 
 router = APIRouter(tags=["multi-bot"])
@@ -158,7 +157,20 @@ def update_bot(bot_id: int, payload: UpdateBotRequest):
 
 @router.get("/api/strategies")
 def strategies():
-    return list_strategies()
+    """Return available visual strategy presets as strategy options."""
+    from app.multibot.visual_router import ensure_table
+    ensure_table()
+    rows = storage.query_all(
+        "SELECT id, name, description, created_at, updated_at FROM visual_strategies ORDER BY updated_at DESC"
+    )
+    return [
+        {
+            "id": f"visual:{r['id']}",
+            "name": r["name"],
+            "description": r["description"],
+        }
+        for r in rows
+    ] + [{"id": "visual", "name": "Visual Strategy (empty)", "description": "Create a new visual strategy from scratch."}]
 
 
 @router.get("/api/bots/{bot_id}/wallet")

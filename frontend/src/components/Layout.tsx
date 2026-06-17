@@ -33,10 +33,6 @@ const bottomNavItems: { to: string; label: string; icon: IconType }[] = [
   { to: '/strategies/builder', label: 'Strategy Builder', icon: FiCode },
 ]
 
-const STRATEGY_COLORS: Record<string, string> = {
-  trend_ob: '#FCD535',
-}
-
 function isBotLive(bot: Bot): boolean {
   return !!bot.runtime_updated_at && (Date.now() / 1000 - bot.runtime_updated_at) < 12
 }
@@ -301,8 +297,7 @@ function BotChip({
   size?: 'sm' | 'md'
 }) {
   const live = isBotLive(bot)
-  const color = STRATEGY_COLORS[bot.strategy_type] ?? '#707a8a'
-  const label = size === 'sm' ? bot.name : `${bot.name} (${bot.strategy_type})`
+  const label = size === 'sm' ? bot.name : bot.name
 
   return (
     <button
@@ -317,7 +312,7 @@ function BotChip({
     >
       <span
         className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
-        style={{ backgroundColor: color, boxShadow: live ? `0 0 4px ${color}` : undefined }}
+        style={{ backgroundColor: '#707a8a', boxShadow: live ? '0 0 4px #707a8a' : undefined }}
       />
       {label}
       {live && <span className="w-1.5 h-1.5 rounded-full bg-trading-up inline-block" />}

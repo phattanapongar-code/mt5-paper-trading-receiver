@@ -58,7 +58,6 @@ def test_report_max_drawdown():
 
 def test_backtest_request_validation():
     req = BacktestRequest(start_time=1000, end_time=2000)
-    assert req.strategy_type == "trend_ob"
     assert req.symbol == "XAUUSD"
     assert req.timeframe == "M15"
     assert req.initial_balance == 10000.0
@@ -66,7 +65,7 @@ def test_backtest_request_validation():
 
 def test_backtest_request_custom():
     req = BacktestRequest(
-        strategy_type="trend_ob",
+        visual_strategy_id=1,
         symbol="EURUSD",
         timeframe="H1",
         start_time=1000,
@@ -74,6 +73,6 @@ def test_backtest_request_custom():
         initial_balance=5000.0,
         parameters={"risk_percent": 0.02},
     )
-    assert req.strategy_type == "trend_ob"
+    assert req.visual_strategy_id == 1
     assert req.symbol == "EURUSD"
     assert req.parameters["risk_percent"] == 0.02

@@ -120,7 +120,7 @@ def get_bot(bot_id: int) -> dict[str, Any] | None:
     return bots[0] if bots else None
 
 
-def create_bot(profile_id: int, name: str, strategy_type: str = "trend_ob", strategy_version: str = "v1",
+def create_bot(profile_id: int, name: str, visual_strategy_id: int | None = None,
                symbol: str = "XAUUSD", timeframe: str = "M15", enabled: bool = False,
                initial_balance: float = 500.0, parameters: dict[str, Any] | None = None) -> dict[str, Any]:
     now = int(time.time())
@@ -129,10 +129,10 @@ def create_bot(profile_id: int, name: str, strategy_type: str = "trend_ob", stra
     with storage.transaction() as conn:
         cur = conn.execute(
             """
-            INSERT INTO bots(profile_id,name,strategy_type,strategy_version,symbol,timeframe,enabled,parameters_json,created_at,updated_at)
-            VALUES(?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO bots(profile_id,name,strategy_type,strategy_version,symbol,timeframe,enabled,parameters_json,visual_strategy_id,created_at,updated_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)
             """,
-            (profile_id, name, strategy_type, strategy_version, symbol, timeframe, 1 if enabled else 0, json_text(params), now, now),
+            (profile_id, name, "visual", "v1", symbol, timeframe, 1 if enabled else 0, json_text(params), visual_strategy_id, now, now),
         )
         bot_id = cur.lastrowid
         conn.execute(
@@ -147,7 +147,7 @@ def clone_bot(bot_id: int, name: str) -> dict[str, Any]:
     source = get_bot(bot_id)
     if source is None:
         raise ValueError("bot not found")
-    return create_bot(source["profile_id"], name, source["strategy_type"], source["strategy_version"], source["symbol"], source["timeframe"], False, source["initial_balance"], source["parameters"])
+    return create_bot(source["profile_id"], name, source.get("visual_strategy_id"), source["symbol"], source["timeframe"], False, source["initial_balance"], source["parameters"])
 
 
 def set_bot_enabled(bot_id: int, enabled: bool) -> dict[str, Any] | None:
@@ -193,7 +193,7 @@ def compare(bot_ids: list[int] | None = None) -> list[dict[str, Any]]:
     rows = storage.query_all(
         f"""
         SELECT b.id AS bot_id, b.name, p.name AS profile_name, b.strategy_type, b.strategy_version,
-               b.symbol, b.timeframe,
+               b.symbol, b.timeframe, b.visual_strategy_id,
                w.initial_balance, w.balance, w.realized_pnl, w.max_drawdown,
                w.total_commission, w.total_spread_cost, w.total_slippage,
                (SELECT COUNT(*) FROM bot_positions bp WHERE bp.bot_id=b.id AND bp.status='closed') AS closed_trades,
@@ -262,7 +262,7 @@ def update_bot(bot_id: int, **updates) -> dict[str, Any] | None:
     with storage.transaction() as conn:
         pairs = []
         params: list[Any] = []
-        for key in ("name", "symbol", "timeframe", "strategy_type", "enabled"):
+        for key in ("name", "symbol", "timeframe", "enabled", "visual_strategy_id"):
             if key in updates and updates[key] is not None:
                 pairs.append(f"{key}=?")
                 if key == "enabled":

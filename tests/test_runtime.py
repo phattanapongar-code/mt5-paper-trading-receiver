@@ -166,7 +166,7 @@ def _setup_minimal_bot(conn, side: str = "buy", entry: float = 2300.0, sl: float
     pid = conn.execute("SELECT id FROM profiles ORDER BY id LIMIT 1").fetchone()[0]
     conn.execute(
         "INSERT INTO bots(profile_id,name,strategy_type,strategy_version,symbol,timeframe,enabled,parameters_json,created_at,updated_at) VALUES(?,?,?,?,?,?,1,?,?,?)",
-        (pid, "test_bot", "trend_ob", "v1", "XAUUSD", "M15", json_text(default_parameters()), now, now),
+        (pid, "test_bot", "visual", "v1", "XAUUSD", "M15", json_text(default_parameters()), now, now),
     )
     bid = conn.execute("SELECT id FROM bots ORDER BY id DESC LIMIT 1").fetchone()[0]
     conn.execute(

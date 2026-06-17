@@ -139,7 +139,7 @@ export default function Compare() {
                 <td className="py-2 pr-3">{b.name}
                   <span className="ml-2 text-muted">{b.profile_name}</span>
                 </td>
-                <td className="py-2 pr-3">{b.strategy_type} {b.strategy_version}</td>
+                <td className="py-2 pr-3 font-mono text-xs">Visual</td>
                 <td className="text-right py-2 pr-3 font-mono">${b.balance?.toFixed(2) ?? '0.00'}</td>
                 <td className={`text-right py-2 pr-3 font-mono ${(b.net_pnl ?? 0) >= 0 ? 'text-trading-up' : 'text-trading-down'}`}>
                   {(b.net_pnl ?? 0) >= 0 ? '+' : ''}{(b.net_pnl ?? 0).toFixed(2)}

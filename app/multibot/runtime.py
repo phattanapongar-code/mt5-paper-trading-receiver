@@ -412,12 +412,17 @@ def _evaluate_bot(conn, bot: dict[str, Any], tick: dict[str, Any], now: int) -> 
     #             f"{int(state['consecutive_losses'] or 0)} losses in a row \u2192 PAUSED", bot_id=bot_id)
     #     return
 
-    from app.multibot.strategies import get_strategy
-    meta = get_strategy(str(bot.get("strategy_type", "trend_ob")))
-    if meta is None:
-        _log(conn, bot_id, "strategy_error", f"unknown strategy: {bot.get('strategy_type')}", None)
+    from app.multibot.visual_engine import execute_graph, get_visual_graph
+    graph = get_visual_graph(conn, bot)
+    if graph is None:
         return
-    decision = meta.decide(conn, bot, tick, params, now)
+    decision = execute_graph(
+        graph,
+        bid=bid,
+        ask=ask,
+        symbol=str(bot.get("symbol", "XAUUSD")),
+        timeframe=str(bot.get("timeframe", "M15")),
+    )
     if decision is None:
         return
     action = str(decision.get("action", "")).lower()
@@ -461,8 +466,8 @@ def _evaluate_bot(conn, bot: dict[str, Any], tick: dict[str, Any], now: int) -> 
         (bot_id, wallet_id, ob_key, bot["symbol"], bot["timeframe"], action, entry, sl, tp, rr, params["risk_percent"], lot, now, now + expiry_seconds, now),
     )
     conn.execute("UPDATE bot_runtime_state SET latest_ob_key=?,updated_at=? WHERE bot_id=?", (ob_key, now, bot_id))
-    alert_engine.notify_pending_created(str(bot.get("name", "?")), str(bot.get("symbol", "?")), action, entry, sl, tp, lot, now + expiry_seconds, str(meta.id), bot_id=bot_id)
-    _log(conn, bot_id, "pending_created", str(meta.id), {"pending_id": cur.lastrowid, "ob_key": ob_key, "entry": entry, "sl": sl, "tp": tp, "lot": lot, "strategy": meta.id})
+    alert_engine.notify_pending_created(str(bot.get("name", "?")), str(bot.get("symbol", "?")), action, entry, sl, tp, lot, now + expiry_seconds, "visual", bot_id=bot_id)
+    _log(conn, bot_id, "pending_created", "visual", {"pending_id": cur.lastrowid, "ob_key": ob_key, "entry": entry, "sl": sl, "tp": tp, "lot": lot, "strategy": "visual"})
 
 
 def _log_safe(conn_eval, bot_id: int, msg: str, exception: Exception) -> None:
@@ -499,7 +504,7 @@ def process_tick_sync(tick: dict[str, Any]) -> dict[str, Any]:
                 except Exception:
                     pass
                 alert_engine.notify_error(bot.get("name", "?"), str(exc), bot_id=bot["id"])
-                _log_safe(conn, bot["id"], f"eval_error [{bot.get('strategy_type','?')}]", exc)
+                _log_safe(conn, bot["id"], f"eval_error [{bot.get('name','?')}]", exc)
                 errors.append({"bot_id": bot["id"], "error": str(exc)})
     result: dict[str, Any] = {"ok": True, "processed_bots": processed, "tick": tick}
     if errors:

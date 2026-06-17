@@ -7,9 +7,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from app import storage
-from app.backtest.models import BacktestRequest, OptimizeRequest
+from app.backtest.models import BacktestRequest
 from app.backtest.engine import BacktestEngine
-from app.backtest.optimizer import ParameterOptimizer
 from app.multibot.db import default_parameters, json_text
 
 router = APIRouter(prefix="/api/backtest", tags=["backtest"])
@@ -34,7 +33,7 @@ def run_backtest(req: BacktestRequest) -> dict[str, Any]:
         ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
-            req.strategy_type, req.symbol, req.timeframe, json_text(req.parameters),
+            "visual", req.symbol, req.timeframe, json_text(req.parameters),
             req.start_time, req.end_time, json_text(req.model_dump()),
             report["total_trades"], report["wins"], report["losses"], report["win_rate"],
             report["net_pnl"], report["gross_profit"], report["gross_loss"],
@@ -45,32 +44,6 @@ def run_backtest(req: BacktestRequest) -> dict[str, Any]:
     )
     report["run_id"] = storage.query_one("SELECT last_insert_rowid() AS id")["id"]
     return report
-
-
-@router.post("/optimize")
-def optimize(req: OptimizeRequest) -> dict[str, Any]:
-    if not req.param_ranges:
-        raise HTTPException(status_code=400, detail="param_ranges must have at least one parameter")
-    if req.start_time >= req.end_time:
-        raise HTTPException(status_code=400, detail="start_time must be before end_time")
-    optimizer = ParameterOptimizer(req)
-    results = optimizer.run()
-    now = int(time.time())
-    storage.execute(
-        """
-        INSERT INTO backtest_optimize_runs(
-            strategy_type,param_ranges_json,symbol,timeframe,start_time,end_time,
-            optimization_metric,total_combinations,results_json,created_at
-        ) VALUES(?,?,?,?,?,?,?,?,?,?)
-        """,
-        (
-            req.strategy_type, json_text(req.param_ranges), req.symbol, req.timeframe,
-            req.start_time, req.end_time, req.optimization_metric,
-            results["total_combinations"], json_text(results["results"]), now,
-        ),
-    )
-    results["run_id"] = storage.query_one("SELECT last_insert_rowid() AS id")["id"]
-    return results
 
 
 @router.get("/history")
@@ -131,10 +104,18 @@ def clone_best_params(run_id: int) -> dict[str, Any]:
     profile = storage.query_one("SELECT id FROM profiles ORDER BY id LIMIT 1")
     profile_id = profile["id"] if profile else 1
 
-    name = f"Backtest {report['strategy_type']} #{run_id}"
+    # Extract visual_strategy_id from config_json if available
+    visual_strategy_id = None
+    try:
+        config = json.loads(report.get("config_json", "{}"))
+        visual_strategy_id = config.get("visual_strategy_id")
+    except Exception:
+        pass
+
+    name = f"Backtest #{run_id}"
     cur = storage.execute(
-        "INSERT INTO bots(profile_id,name,strategy_type,strategy_version,symbol,timeframe,enabled,parameters_json,created_at,updated_at) VALUES(?,?,?,?,?,?,0,?,?,?)",
-        (profile_id, name, report["strategy_type"], "v1", report["symbol"], report["timeframe"], json_text(params), now, now),
+        "INSERT INTO bots(profile_id,name,strategy_type,strategy_version,symbol,timeframe,enabled,parameters_json,visual_strategy_id,created_at,updated_at) VALUES(?,?,?,?,?,?,0,?,?,?,?)",
+        (profile_id, name, "visual", "v1", report["symbol"], report["timeframe"], json_text(params), visual_strategy_id, now, now),
     )
     bot_id = cur.lastrowid
     storage.execute(

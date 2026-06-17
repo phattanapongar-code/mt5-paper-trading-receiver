@@ -84,14 +84,20 @@ class BacktestEngine:
         self.structure = MarketStructureEngine()
         self.order_blocks = OrderBlockEngine()
 
-        # Strategy
-        from app.multibot.strategies import get_strategy
-        meta = get_strategy(config.strategy_type)
-        self.decide_fn = meta.decide if meta else None
+        # Load visual strategy graph
+        self.graph = self._load_graph()
 
-    def _mock_conn(self) -> dict[str, Any]:
-        """Return a minimal mock connection for strategy decide() calls."""
-        return type("MockConn", (), {"execute": lambda *a, **kw: None})()
+    def _load_graph(self) -> dict[str, Any] | None:
+        """Load visual strategy graph from visual_strategy_id or inline graph."""
+        import json
+        if self.config.visual_strategy_id:
+            row = storage.query_one(
+                "SELECT graph_json FROM visual_strategies WHERE id=?",
+                (self.config.visual_strategy_id,),
+            )
+            if row:
+                return json.loads(row["graph_json"])
+        return self.config.graph
 
     def run(self) -> dict[str, Any]:
         now_ts = int(time.time())
@@ -196,7 +202,7 @@ class BacktestEngine:
         self.position = None
 
     def _evaluate_tick(self, tick: dict[str, Any], now: int) -> None:
-        if not self.decide_fn:
+        if not self.graph:
             return
         bid = float(tick["bid"])
         ask = float(tick["ask"])
@@ -269,17 +275,22 @@ class BacktestEngine:
         if self.consecutive_losses >= int(self.params.get("max_consecutive_losses", 3)):
             return
 
-        # Build mock bot for strategy
+        # Build mock bot for visual strategy (needed by get_visual_graph)
         bot = {
             "id": 0,
             "symbol": self.config.symbol,
             "timeframe": self.config.timeframe,
-            "strategy_type": self.config.strategy_type,
             "parameters_json": "",
-            "wallet_id": 0,
         }
 
-        decision = self.decide_fn(self._mock_conn(), bot, tick, self.params, now)
+        from app.multibot.visual_engine import execute_graph
+        decision = execute_graph(
+            self.graph,
+            bid=bid,
+            ask=ask,
+            symbol=self.config.symbol,
+            timeframe=self.config.timeframe,
+        )
         if decision is None:
             return
         action = str(decision.get("action", "")).lower()

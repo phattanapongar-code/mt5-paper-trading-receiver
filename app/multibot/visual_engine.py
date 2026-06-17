@@ -1,11 +1,41 @@
 from __future__ import annotations
 
+import json
 import math
 from collections import deque
 from typing import Any, Callable
 
 from app import storage
 from app.indicators import sma, rsi, atr, ema, compute_indicators, bollinger_bands, macd as macd_func, trend_from_ma
+
+
+def get_visual_graph(conn, bot: dict[str, Any]) -> dict[str, Any] | None:
+    """Look up the visual strategy graph for a bot.
+
+    Priority:
+    1. visual_strategy_id → query visual_strategies table
+    2. parameters_json.get('graph') (legacy inline graph)
+    """
+    vs_id = bot.get("visual_strategy_id")
+    if vs_id:
+        try:
+            row = conn.execute(
+                "SELECT graph_json FROM visual_strategies WHERE id=?",
+                (int(vs_id),),
+            ).fetchone()
+            if row:
+                return json.loads(row["graph_json"])
+        except Exception:
+            pass
+    raw = bot.get("parameters_json")
+    if not raw:
+        return None
+    try:
+        p = json.loads(raw) if isinstance(raw, str) else raw
+    except (json.JSONDecodeError, TypeError):
+        return None
+    graph = p.get("graph") if isinstance(p, dict) else None
+    return graph
 
 
 # ── Node handler registry ──

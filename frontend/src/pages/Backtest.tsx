@@ -50,13 +50,13 @@ export default function Backtest() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [bots, setBots] = useState<Bot[]>([])
-  const [strategies, setStrategies] = useState<{ id: string; name: string }[]>([])
+  const [visualStrategies, setVisualStrategies] = useState<{ id: number; name: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
 
   const [mode, setMode] = useState<'bot' | 'custom'>('custom')
   const [botId, setBotId] = useState<number | null>(null)
-  const [strategyType, setStrategyType] = useState('trend_ob')
+  const [visualStrategyId, setVisualStrategyId] = useState<number | null>(null)
   const [parametersText, setParametersText] = useState('{}')
   const [symbol, setSymbol] = useState('XAUUSD')
   const [timeframe, setTimeframe] = useState('M15')
@@ -68,13 +68,13 @@ export default function Backtest() {
 
   const fetchMeta = useCallback(async () => {
     try {
-      const [botsRes, stratRes, histRes] = await Promise.all([
+      const [botsRes, vsRes, histRes] = await Promise.all([
         client.get<Bot[]>('/bots'),
-        client.get<{ id: string; name: string }[]>('/strategies'),
+        client.get<{ id: number; name: string }[]>('/visual-strategies'),
         client.get<BacktestHistory[]>('/backtest/history', { params: { limit: 10 } }),
       ])
       setBots(botsRes.data)
-      setStrategies(stratRes.data)
+      setVisualStrategies(vsRes.data)
       setHistory(histRes.data)
     } catch { /* ignore */ } finally { setLoading(false) }
   }, [])
@@ -91,7 +91,7 @@ export default function Backtest() {
   const selectedBot = useMemo(() => bots.find(b => b.id === botId), [bots, botId])
   useEffect(() => {
     if (selectedBot) {
-      setStrategyType(selectedBot.strategy_type)
+      setVisualStrategyId(selectedBot.visual_strategy_id ?? null)
       setParametersText(JSON.stringify(selectedBot.parameters ?? {}, null, 2))
       setSymbol(selectedBot.symbol)
       setTimeframe(selectedBot.timeframe)
@@ -108,7 +108,7 @@ export default function Backtest() {
     setRunning(true)
     try {
       const res = await client.post<BacktestResult>('/backtest/run', {
-        bot_id: botId, strategy_type: strategyType, parameters: params,
+        bot_id: botId, visual_strategy_id: visualStrategyId, parameters: params,
         symbol, timeframe, start_time: startTime, end_time: endTime,
         initial_balance: initialBalance,
       })
@@ -118,7 +118,7 @@ export default function Backtest() {
     } catch (err: unknown) {
       addToast('Backtest failed: ' + (err instanceof Error ? err.message : String(err)), 'error')
     } finally { setRunning(false) }
-  }, [botId, strategyType, parametersText, symbol, timeframe, startDate, endDate, initialBalance, addToast, fetchMeta])
+  }, [botId, visualStrategyId, parametersText, symbol, timeframe, startDate, endDate, initialBalance, addToast, fetchMeta])
 
   const exportCsv = useCallback(() => {
     if (!result || result.trades.length === 0) return
@@ -159,10 +159,11 @@ export default function Backtest() {
             </div>
           )}
           <div>
-            <label className="text-xs text-muted block mb-1">Strategy</label>
-            <select value={strategyType} onChange={e => setStrategyType(e.target.value)}
+            <label className="text-xs text-muted block mb-1">Visual Strategy</label>
+            <select value={visualStrategyId ?? ''} onChange={e => setVisualStrategyId(e.target.value ? Number(e.target.value) : null)}
               className="w-full px-2 py-1.5 text-xs bg-surface-elevated-dark border border-hairline-on-dark rounded cursor-pointer text-body">
-              {strategies.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              <option value="">-- None (parameters only) --</option>
+              {visualStrategies.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </div>
           <div>
@@ -279,7 +280,7 @@ export default function Backtest() {
               <tbody>
                 {history.map(h => (
                   <tr key={h.id} className="border-b border-surface-elevated-dark cursor-pointer hover:bg-surface-elevated-dark/30" onClick={() => navigate(`/backtest?run=${h.id}`)}>
-                    <td className="p-2 font-mono">{h.strategy_type}</td>
+                    <td className="p-2 font-mono">Visual</td>
                     <td className="p-2 font-mono">{h.symbol} {h.timeframe}</td>
                     <td className="p-2 font-mono text-right">{h.total_trades}</td>
                     <td className={`p-2 font-mono text-right ${h.net_pnl >= 0 ? 'text-trading-up' : 'text-trading-down'}`}>${h.net_pnl.toFixed(2)}</td>
