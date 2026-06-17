@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import {
   ReactFlow,
+  ReactFlowProvider,
   Background,
   Controls,
   MiniMap,
@@ -317,6 +318,7 @@ export default function StrategyBuilder() {
 
         {/* Canvas */}
         <div ref={reactFlowWrapper} className="flex-1 relative overflow-hidden" onDragOver={onDragOver} onDrop={onDrop}>
+          <ReactFlowProvider>
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -340,6 +342,7 @@ export default function StrategyBuilder() {
               maskColor="#0b0e11"
             />
           </ReactFlow>
+          </ReactFlowProvider>
         </div>
 
         {/* Bottom Bar */}

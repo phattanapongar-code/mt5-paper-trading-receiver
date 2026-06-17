@@ -75,15 +75,19 @@ function connectGlobal() {
 }
 
 function disconnectGlobal() {
-  if (globalWs) {
-    if (globalWs.readyState === WebSocket.OPEN || globalWs.readyState === WebSocket.CONNECTING) {
-      globalWs.close()
-    }
-    globalWs = null
-  }
   if (retryTimer) {
     clearTimeout(retryTimer)
     retryTimer = null
+  }
+  if (globalWs) {
+    globalWs.onopen = null
+    globalWs.onclose = null
+    globalWs.onerror = null
+    globalWs.onmessage = null
+    if (globalWs.readyState === WebSocket.OPEN) {
+      globalWs.close()
+    }
+    globalWs = null
   }
   useMarketStore.getState().setConnected(false)
 }
