@@ -1,0 +1,31 @@
+{
+  "nodes": [
+    { "id": "data_source_1", "type": "data_source", "params": { "symbol": "XAUUSD", "timeframe": "M15" } },
+    { "id": "ema_12_1", "type": "ema", "params": { "period": 12 } },
+    { "id": "ema_26_1", "type": "ema", "params": { "period": 26 } },
+    { "id": "macd_line_1", "type": "compare", "params": { "operator": "-" } },
+    { "id": "ema_signal_1", "type": "ema", "params": { "period": 9 } },
+    { "id": "macd_signal_line", "type": "compare", "params": { "operator": "==" } },
+    { "id": "compare_macd_signal_1", "type": "compare", "params": { "operator": "cross_above" } },
+    { "id": "compare_macd_signal_2", "type": "compare", "params": { "operator": "cross_below" } },
+    { "id": "atr_14_1", "type": "atr", "params": { "period": 14 } },
+    { "id": "order_buy", "type": "order", "params": { "side": "buy", "sl_atr_multiplier": 1.5, "tp_r_multiple": 3.0 } },
+    { "id": "order_sell", "type": "order", "params": { "side": "sell", "sl_atr_multiplier": 1.5, "tp_r_multiple": 3.0 } }
+  ],
+  "edges": [
+    { "source": "data_source_1", "target": "ema_12_1" },
+    { "source": "data_source_1", "target": "ema_26_1" },
+    { "source": "ema_12_1", "target": "macd_line_1" },
+    { "source": "ema_26_1", "target": "macd_line_1" },
+    { "source": "macd_line_1", "target": "ema_signal_1" },
+    { "source": "ema_signal_1", "target": "macd_signal_line" },
+    { "source": "macd_line_1", "target": "compare_macd_signal_1" },
+    { "source": "macd_signal_line", "target": "compare_macd_signal_1" },
+    { "source": "macd_line_1", "target": "compare_macd_signal_2" },
+    { "source": "macd_signal_line", "target": "compare_macd_signal_2" },
+    { "source": "atr_14_1", "target": "order_buy" },
+    { "source": "atr_14_1", "target": "order_sell" },
+    { "source": "compare_macd_signal_1", "target": "order_buy" },
+    { "source": "compare_macd_signal_2", "target": "order_sell" }
+  ]
+}

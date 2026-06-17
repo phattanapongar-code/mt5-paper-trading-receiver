@@ -1,0 +1,18 @@
+{
+  "nodes": [
+    { "id": "data_source_1", "type": "data_source", "params": { "symbol": "XAUUSD", "timeframe": "M15" } },
+    { "id": "rsi_14_1", "type": "rsi", "params": { "period": 14 } },
+    { "id": "compare_rsi_oversold", "type": "compare", "params": { "operator": ">=" } },
+    { "id": "compare_rsi_overbought", "type": "compare", "params": { "operator": "<=" } },
+    { "id": "atr_14_1", "type": "atr", "params": { "period": 14 } },
+    { "id": "order_buy", "type": "order", "params": { "side": "buy", "sl_atr_multiplier": 1.5, "tp_r_multiple": 3.0 } },
+    { "id": "order_sell", "type": "order", "params": { "side": "sell", "sl_atr_multiplier": 1.5, "tp_r_multiple": 3.0 } }
+  ],
+  "edges": [
+    { "source": "data_source_1", "target": "rsi_14_1" },
+    { "source": "rsi_14_1", "target": "compare_rsi_oversold" },
+    { "source": "rsi_14_1", "target": "compare_rsi_overbought" },
+    { "source": "compare_rsi_oversold", "target": "order_buy" },
+    { "source": "compare_rsi_overbought", "target": "order_sell" }
+  ]
+}

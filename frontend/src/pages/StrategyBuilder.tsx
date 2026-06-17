@@ -16,7 +16,7 @@ import {
 import client from '../api/client'
 import { useToast } from '../components/Toast'
 import { useAuth } from '../context/AuthContext'
-import Toolbar from '../components/strategy-builder/Toolbar'
+import Toolbar, { type PreMadeStrategy } from '../components/strategy-builder/Toolbar'
 import ConfigPanel from '../components/strategy-builder/ConfigPanel'
 import { nodeTypes } from '../components/strategy-builder/nodes'
 import { getDefaultParams, getNodeLabel, getNodeColor } from '../components/strategy-builder/utils'
@@ -41,7 +41,6 @@ function StrategyBuilderInner() {
   const [testAsk, setTestAsk] = useState('')
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
 
-  // Fetch saved strategies
   useEffect(() => {
     const fetchStrategies = async () => {
       try {
@@ -110,6 +109,27 @@ function StrategyBuilderInner() {
     },
     [setNodes]
   )
+
+  const applyPreset = useCallback((preset: PreMadeStrategy) => {
+    const positionsUpdated = preset.nodes.map((n, i) => ({
+      ...n,
+      data: {
+        params: n.params,
+        label: n.type,
+        color: '#707a8a',
+      },
+      sourcePosition: 'right' as const,
+      targetPosition: 'left' as const,
+      draggable: true,
+      style: { width: n.type === 'order' ? 220 : 180 },
+    }))
+    setNodes(positionsUpdated)
+    setEdges(preset.edges.map(e => ({ ...e, type: 'default' })))
+    setStrategyName(preset.name)
+    setStrategyDescription(preset.description)
+    setSelectedStrategyId(null)
+    addToast(`Loaded "${preset.name}"`, 'success')
+  }, [addToast])
 
   const handleSave = useCallback(async () => {
     if (!strategyName.trim()) {
@@ -247,12 +267,9 @@ function StrategyBuilderInner() {
 
   return (
     <div className="flex h-screen bg-canvas-dark">
-      {/* Toolbar */}
-      <Toolbar />
+      <Toolbar onLoadStrategy={applyPreset} />
 
-      {/* Main Canvas Area */}
       <div className="flex-1 flex flex-col relative">
-        {/* Header */}
         <div className="h-14 bg-surface-card-dark border-b border-hairline-on-dark px-4 flex items-center gap-4">
           <div className="flex items-center gap-2">
             <label className="text-xs text-muted">Strategy Name:</label>
@@ -296,7 +313,6 @@ function StrategyBuilderInner() {
           </div>
         </div>
 
-        {/* Canvas */}
         <div ref={reactFlowWrapper} className="flex-1 relative overflow-hidden" onDragOver={onDragOver} onDrop={onDrop}>
           <ReactFlow
             nodes={nodes}
@@ -323,7 +339,6 @@ function StrategyBuilderInner() {
           </ReactFlow>
         </div>
 
-        {/* Bottom Bar */}
         <div className="h-10 bg-surface-card-dark border-t border-hairline-on-dark px-4 flex items-center gap-4 text-xs text-muted">
           <span>{nodes.length} nodes</span>
           <span className="text-hairline-on-dark">|</span>
@@ -366,7 +381,6 @@ function StrategyBuilderInner() {
         </div>
       </div>
 
-      {/* Config Panel */}
       {selectedNode && (
         <ConfigPanel
           node={selectedNode as any}

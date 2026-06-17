@@ -1,0 +1,32 @@
+{
+  "nodes": [
+    { "id": "data_source_1", "type": "data_source", "params": { "symbol": "XAUUSD", "timeframe": "M15" } },
+    { "id": "sma_20_1", "type": "sma", "params": { "period": 20 } },
+    { "id": "atr_14_1", "type": "atr", "params": { "period": 14 } },
+    { "id": "bb_upper_1", "type": "sma", "params": { "period": 20 } },
+    { "id": "bb_lower_1", "type": "sma", "params": { "period": 20 } },
+    { "id": "std_1", "type": "sma", "params": { "period": 20 } },
+    { "id": "bb_upper_calc", "type": "compare", "params": { "operator": "+" } },
+    { "id": "bb_lower_calc", "type": "compare", "params": { "operator": "-" } },
+    { "id": "compare_bb_upper", "type": "compare", "params": { "operator": ">" } },
+    { "id": "compare_bb_lower", "type": "compare", "params": { "operator": "<" } },
+    { "id": "order_buy", "type": "order", "params": { "side": "buy", "sl_atr_multiplier": 1.5, "tp_r_multiple": 3.0 } },
+    { "id": "order_sell", "type": "order", "params": { "side": "sell", "sl_atr_multiplier": 1.5, "tp_r_multiple": 3.0 } }
+  ],
+  "edges": [
+    { "source": "data_source_1", "target": "sma_20_1" },
+    { "source": "data_source_1", "target": "atr_14_1" },
+    { "source": "data_source_1", "target": "bb_upper_calc" },
+    { "source": "data_source_1", "target": "bb_lower_calc" },
+    { "source": "sma_20_1", "target": "bb_upper_calc" },
+    { "source": "sma_20_1", "target": "bb_lower_calc" },
+    { "source": "atr_14_1", "target": "bb_upper_calc" },
+    { "source": "atr_14_1", "target": "bb_lower_calc" },
+    { "source": "data_source_1", "target": "compare_bb_upper" },
+    { "source": "bb_upper_calc", "target": "compare_bb_upper" },
+    { "source": "data_source_1", "target": "compare_bb_lower" },
+    { "source": "bb_lower_calc", "target": "compare_bb_lower" },
+    { "source": "compare_bb_upper", "target": "order_buy" },
+    { "source": "compare_bb_lower", "target": "order_sell" }
+  ]
+}
