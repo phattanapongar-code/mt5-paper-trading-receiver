@@ -1,21 +1,127 @@
 {
   "nodes": [
-    { "id": "ds", "type": "data_source", "params": { "timeframe": "M15" } },
-    { "id": "ma60", "type": "sma", "params": { "period": 60 } },
-    { "id": "ma80", "type": "sma", "params": { "period": 80 } },
-    { "id": "cmp_up", "type": "compare", "params": { "operator": "cross_above" } },
-    { "id": "cmp_dn", "type": "compare", "params": { "operator": "cross_below" } },
-    { "id": "buy", "type": "order", "params": { "side": "buy", "sl_atr_multiplier": 1.5, "tp_r_multiple": 3.0 } },
-    { "id": "sell", "type": "order", "params": { "side": "sell", "sl_atr_multiplier": 1.5, "tp_r_multiple": 3.0 } }
+    {
+      "id": "ds",
+      "type": "data_source",
+      "params": {
+        "timeframe": "M15"
+      },
+      "position": {
+        "x": 0,
+        "y": 40
+      }
+    },
+    {
+      "id": "ma60",
+      "type": "sma",
+      "params": {
+        "period": 60
+      },
+      "position": {
+        "x": 260,
+        "y": 40
+      }
+    },
+    {
+      "id": "ma80",
+      "type": "sma",
+      "params": {
+        "period": 80
+      },
+      "position": {
+        "x": 260,
+        "y": 120
+      }
+    },
+    {
+      "id": "cmp_up",
+      "type": "compare",
+      "params": {
+        "operator": "cross_above"
+      },
+      "position": {
+        "x": 520,
+        "y": 120
+      }
+    },
+    {
+      "id": "cmp_dn",
+      "type": "compare",
+      "params": {
+        "operator": "cross_below"
+      },
+      "position": {
+        "x": 520,
+        "y": 40
+      }
+    },
+    {
+      "id": "buy",
+      "type": "order",
+      "params": {
+        "side": "buy",
+        "sl_atr_multiplier": 1.5,
+        "tp_r_multiple": 3.0
+      },
+      "position": {
+        "x": 780,
+        "y": 40
+      }
+    },
+    {
+      "id": "sell",
+      "type": "order",
+      "params": {
+        "side": "sell",
+        "sl_atr_multiplier": 1.5,
+        "tp_r_multiple": 3.0
+      },
+      "position": {
+        "x": 780,
+        "y": 120
+      }
+    }
   ],
   "edges": [
-    { "id": "e1", "source": "ds", "target": "ma60" },
-    { "id": "e2", "source": "ds", "target": "ma80" },
-    { "id": "e3", "source": "ma60", "target": "cmp_up" },
-    { "id": "e4", "source": "ma80", "target": "cmp_up" },
-    { "id": "e5", "source": "ma60", "target": "cmp_dn" },
-    { "id": "e6", "source": "ma80", "target": "cmp_dn" },
-    { "id": "e7", "source": "cmp_up", "target": "buy" },
-    { "id": "e8", "source": "cmp_dn", "target": "sell" }
+    {
+      "id": "e1",
+      "source": "ds",
+      "target": "ma60"
+    },
+    {
+      "id": "e2",
+      "source": "ds",
+      "target": "ma80"
+    },
+    {
+      "id": "e3",
+      "source": "ma60",
+      "target": "cmp_up"
+    },
+    {
+      "id": "e4",
+      "source": "ma80",
+      "target": "cmp_up"
+    },
+    {
+      "id": "e5",
+      "source": "ma60",
+      "target": "cmp_dn"
+    },
+    {
+      "id": "e6",
+      "source": "ma80",
+      "target": "cmp_dn"
+    },
+    {
+      "id": "e7",
+      "source": "cmp_up",
+      "target": "buy"
+    },
+    {
+      "id": "e8",
+      "source": "cmp_dn",
+      "target": "sell"
+    }
   ]
 }

@@ -9,6 +9,7 @@ import {
   useEdgesState,
   useReactFlow,
   addEdge,
+  Position,
   type Node,
   type Edge,
   type Connection,
@@ -85,8 +86,8 @@ function StrategyBuilderInner() {
         label: getNodeLabel(type as any),
         color: getNodeColor(type as any),
       },
-      sourcePosition: 'right' as const,
-      targetPosition: 'left' as const,
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
       draggable: true,
       style: {
         width: type === 'order' ? 220 : 180,
@@ -113,13 +114,14 @@ function StrategyBuilderInner() {
   const applyPreset = useCallback((preset: PreMadeStrategy) => {
     const positionsUpdated = preset.nodes.map((n, i) => ({
       ...n,
+      position: n.position ?? { x: 50 + (i % 3) * 220, y: 40 + Math.floor(i / 3) * 100 },
       data: {
         params: n.params,
         label: n.type,
         color: '#707a8a',
       },
-      sourcePosition: 'right' as const,
-      targetPosition: 'left' as const,
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
       draggable: true,
       style: { width: n.type === 'order' ? 220 : 180 },
     }))
@@ -182,10 +184,10 @@ function StrategyBuilderInner() {
         const loadedNodes = graph.nodes.map((n: any) => ({
           id: n.id,
           type: n.type,
-          position: n.position as any,
+          position: n.position as any ?? { x: 50 + (graph.nodes.indexOf(n) % 3) * 220, y: 40 + Math.floor(graph.nodes.indexOf(n) / 3) * 100 },
           data: { params: n.params, label: n.type, color: '#707a8a' },
-          sourcePosition: 'right' as any,
-          targetPosition: 'left' as any,
+          sourcePosition: Position.Right,
+          targetPosition: Position.Left,
           style: { width: n.type === 'order' ? 220 : 180 },
         }))
 

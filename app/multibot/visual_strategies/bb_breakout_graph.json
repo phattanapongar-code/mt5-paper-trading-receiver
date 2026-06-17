@@ -1,29 +1,196 @@
 {
   "nodes": [
-    { "id": "ds", "type": "data_source", "params": { "timeframe": "M15" } },
-    { "id": "ds_close", "type": "field", "params": { "field": "close" } },
-    { "id": "bb", "type": "bollinger", "params": { "period": 20, "std_dev": 2.0 } },
-    { "id": "bb_u", "type": "field", "params": { "field": "bb_upper" } },
-    { "id": "bb_l", "type": "field", "params": { "field": "bb_lower" } },
-    { "id": "cmp_up", "type": "compare", "params": { "operator": "cross_above" } },
-    { "id": "cmp_dn", "type": "compare", "params": { "operator": "cross_below" } },
-    { "id": "ob_buy", "type": "ob_query", "params": { "side": "buy", "allow_tested_once": false } },
-    { "id": "ob_sell", "type": "ob_query", "params": { "side": "sell", "allow_tested_once": false } },
-    { "id": "buy", "type": "order", "params": { "side": "buy", "entry_style": "ob_midpoint", "sl_atr_multiplier": 1.5, "tp_r_multiple": 3.0 } },
-    { "id": "sell", "type": "order", "params": { "side": "sell", "entry_style": "ob_midpoint", "sl_atr_multiplier": 1.5, "tp_r_multiple": 3.0 } }
+    {
+      "id": "ds",
+      "type": "data_source",
+      "params": {
+        "timeframe": "M15"
+      },
+      "position": {
+        "x": 0,
+        "y": 40
+      }
+    },
+    {
+      "id": "ds_close",
+      "type": "field",
+      "params": {
+        "field": "close"
+      },
+      "position": {
+        "x": 260,
+        "y": 120
+      }
+    },
+    {
+      "id": "bb",
+      "type": "bollinger",
+      "params": {
+        "period": 20,
+        "std_dev": 2.0
+      },
+      "position": {
+        "x": 260,
+        "y": 40
+      }
+    },
+    {
+      "id": "bb_u",
+      "type": "field",
+      "params": {
+        "field": "bb_upper"
+      },
+      "position": {
+        "x": 520,
+        "y": 120
+      }
+    },
+    {
+      "id": "bb_l",
+      "type": "field",
+      "params": {
+        "field": "bb_lower"
+      },
+      "position": {
+        "x": 520,
+        "y": 40
+      }
+    },
+    {
+      "id": "cmp_up",
+      "type": "compare",
+      "params": {
+        "operator": "cross_above"
+      },
+      "position": {
+        "x": 780,
+        "y": 120
+      }
+    },
+    {
+      "id": "cmp_dn",
+      "type": "compare",
+      "params": {
+        "operator": "cross_below"
+      },
+      "position": {
+        "x": 780,
+        "y": 40
+      }
+    },
+    {
+      "id": "ob_buy",
+      "type": "ob_query",
+      "params": {
+        "side": "buy",
+        "allow_tested_once": false
+      },
+      "position": {
+        "x": 0,
+        "y": 120
+      }
+    },
+    {
+      "id": "ob_sell",
+      "type": "ob_query",
+      "params": {
+        "side": "sell",
+        "allow_tested_once": false
+      },
+      "position": {
+        "x": 0,
+        "y": 200
+      }
+    },
+    {
+      "id": "buy",
+      "type": "order",
+      "params": {
+        "side": "buy",
+        "entry_style": "ob_midpoint",
+        "sl_atr_multiplier": 1.5,
+        "tp_r_multiple": 3.0
+      },
+      "position": {
+        "x": 1040,
+        "y": 40
+      }
+    },
+    {
+      "id": "sell",
+      "type": "order",
+      "params": {
+        "side": "sell",
+        "entry_style": "ob_midpoint",
+        "sl_atr_multiplier": 1.5,
+        "tp_r_multiple": 3.0
+      },
+      "position": {
+        "x": 1040,
+        "y": 120
+      }
+    }
   ],
   "edges": [
-    { "id": "e1", "source": "ds", "target": "ds_close" },
-    { "id": "e2", "source": "ds", "target": "bb" },
-    { "id": "e3", "source": "bb", "target": "bb_u" },
-    { "id": "e4", "source": "bb", "target": "bb_l" },
-    { "id": "e5", "source": "ds_close", "target": "cmp_up" },
-    { "id": "e6", "source": "bb_u", "target": "cmp_up" },
-    { "id": "e7", "source": "ds_close", "target": "cmp_dn" },
-    { "id": "e8", "source": "bb_l", "target": "cmp_dn" },
-    { "id": "e9", "source": "cmp_up", "target": "buy" },
-    { "id": "e10", "source": "ob_buy", "target": "buy" },
-    { "id": "e11", "source": "cmp_dn", "target": "sell" },
-    { "id": "e12", "source": "ob_sell", "target": "sell" }
+    {
+      "id": "e1",
+      "source": "ds",
+      "target": "ds_close"
+    },
+    {
+      "id": "e2",
+      "source": "ds",
+      "target": "bb"
+    },
+    {
+      "id": "e3",
+      "source": "bb",
+      "target": "bb_u"
+    },
+    {
+      "id": "e4",
+      "source": "bb",
+      "target": "bb_l"
+    },
+    {
+      "id": "e5",
+      "source": "ds_close",
+      "target": "cmp_up"
+    },
+    {
+      "id": "e6",
+      "source": "bb_u",
+      "target": "cmp_up"
+    },
+    {
+      "id": "e7",
+      "source": "ds_close",
+      "target": "cmp_dn"
+    },
+    {
+      "id": "e8",
+      "source": "bb_l",
+      "target": "cmp_dn"
+    },
+    {
+      "id": "e9",
+      "source": "cmp_up",
+      "target": "buy"
+    },
+    {
+      "id": "e10",
+      "source": "ob_buy",
+      "target": "buy"
+    },
+    {
+      "id": "e11",
+      "source": "cmp_dn",
+      "target": "sell"
+    },
+    {
+      "id": "e12",
+      "source": "ob_sell",
+      "target": "sell"
+    }
   ]
 }

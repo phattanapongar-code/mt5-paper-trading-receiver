@@ -1,59 +1,413 @@
 {
   "nodes": [
-    { "id": "ds", "type": "data_source", "params": { "timeframe": "M15" } },
-    { "id": "ma60", "type": "sma", "params": { "period": 60 } },
-    { "id": "ma80", "type": "sma", "params": { "period": 80 } },
-    { "id": "ma300", "type": "sma", "params": { "period": 300 } },
-    { "id": "trend_n", "type": "trend", "params": {} },
-    { "id": "rsi_n", "type": "rsi", "params": { "period": 14 } },
-    { "id": "v_oversold", "type": "value", "params": { "value": 30 } },
-    { "id": "v_overbought", "type": "value", "params": { "value": 70 } },
-    { "id": "v_bull", "type": "value", "params": { "value": "BULLISH" } },
-    { "id": "v_neut", "type": "value", "params": { "value": "NEUTRAL" } },
-    { "id": "v_bear", "type": "value", "params": { "value": "BEARISH" } },
-    { "id": "cmp_bull", "type": "compare", "params": { "operator": "==" } },
-    { "id": "cmp_neut", "type": "compare", "params": { "operator": "==" } },
-    { "id": "cmp_bear", "type": "compare", "params": { "operator": "==" } },
-    { "id": "or_buy_tf", "type": "or", "params": {} },
-    { "id": "or_sell_tf", "type": "or", "params": {} },
-    { "id": "cmp_up", "type": "compare", "params": { "operator": "cross_above_threshold" } },
-    { "id": "cmp_dn", "type": "compare", "params": { "operator": "cross_below_threshold" } },
-    { "id": "and_buy", "type": "and", "params": {} },
-    { "id": "and_sell", "type": "and", "params": {} },
-    { "id": "ob_buy", "type": "ob_query", "params": { "side": "buy", "allow_tested_once": false } },
-    { "id": "ob_sell", "type": "ob_query", "params": { "side": "sell", "allow_tested_once": false } },
-    { "id": "buy", "type": "order", "params": { "side": "buy", "entry_style": "ob_midpoint", "sl_atr_multiplier": 1.5, "tp_r_multiple": 3.0 } },
-    { "id": "sell", "type": "order", "params": { "side": "sell", "entry_style": "ob_midpoint", "sl_atr_multiplier": 1.5, "tp_r_multiple": 3.0 } }
+    {
+      "id": "ds",
+      "type": "data_source",
+      "params": {
+        "timeframe": "M15"
+      },
+      "position": {
+        "x": 0,
+        "y": 40
+      }
+    },
+    {
+      "id": "ma60",
+      "type": "sma",
+      "params": {
+        "period": 60
+      },
+      "position": {
+        "x": 260,
+        "y": 120
+      }
+    },
+    {
+      "id": "ma80",
+      "type": "sma",
+      "params": {
+        "period": 80
+      },
+      "position": {
+        "x": 260,
+        "y": 200
+      }
+    },
+    {
+      "id": "ma300",
+      "type": "sma",
+      "params": {
+        "period": 300
+      },
+      "position": {
+        "x": 260,
+        "y": 40
+      }
+    },
+    {
+      "id": "trend_n",
+      "type": "trend",
+      "params": {},
+      "position": {
+        "x": 520,
+        "y": 200
+      }
+    },
+    {
+      "id": "rsi_n",
+      "type": "rsi",
+      "params": {
+        "period": 14
+      },
+      "position": {
+        "x": 260,
+        "y": 280
+      }
+    },
+    {
+      "id": "v_oversold",
+      "type": "value",
+      "params": {
+        "value": 30
+      },
+      "position": {
+        "x": 0,
+        "y": 600
+      }
+    },
+    {
+      "id": "v_overbought",
+      "type": "value",
+      "params": {
+        "value": 70
+      },
+      "position": {
+        "x": 0,
+        "y": 520
+      }
+    },
+    {
+      "id": "v_bull",
+      "type": "value",
+      "params": {
+        "value": "BULLISH"
+      },
+      "position": {
+        "x": 0,
+        "y": 360
+      }
+    },
+    {
+      "id": "v_neut",
+      "type": "value",
+      "params": {
+        "value": "NEUTRAL"
+      },
+      "position": {
+        "x": 0,
+        "y": 440
+      }
+    },
+    {
+      "id": "v_bear",
+      "type": "value",
+      "params": {
+        "value": "BEARISH"
+      },
+      "position": {
+        "x": 0,
+        "y": 280
+      }
+    },
+    {
+      "id": "cmp_bull",
+      "type": "compare",
+      "params": {
+        "operator": "=="
+      },
+      "position": {
+        "x": 780,
+        "y": 120
+      }
+    },
+    {
+      "id": "cmp_neut",
+      "type": "compare",
+      "params": {
+        "operator": "=="
+      },
+      "position": {
+        "x": 780,
+        "y": 200
+      }
+    },
+    {
+      "id": "cmp_bear",
+      "type": "compare",
+      "params": {
+        "operator": "=="
+      },
+      "position": {
+        "x": 780,
+        "y": 40
+      }
+    },
+    {
+      "id": "or_buy_tf",
+      "type": "or",
+      "params": {},
+      "position": {
+        "x": 1040,
+        "y": 40
+      }
+    },
+    {
+      "id": "or_sell_tf",
+      "type": "or",
+      "params": {},
+      "position": {
+        "x": 1040,
+        "y": 120
+      }
+    },
+    {
+      "id": "cmp_up",
+      "type": "compare",
+      "params": {
+        "operator": "cross_above_threshold"
+      },
+      "position": {
+        "x": 520,
+        "y": 120
+      }
+    },
+    {
+      "id": "cmp_dn",
+      "type": "compare",
+      "params": {
+        "operator": "cross_below_threshold"
+      },
+      "position": {
+        "x": 520,
+        "y": 40
+      }
+    },
+    {
+      "id": "and_buy",
+      "type": "and",
+      "params": {},
+      "position": {
+        "x": 1300,
+        "y": 40
+      }
+    },
+    {
+      "id": "and_sell",
+      "type": "and",
+      "params": {},
+      "position": {
+        "x": 1300,
+        "y": 120
+      }
+    },
+    {
+      "id": "ob_buy",
+      "type": "ob_query",
+      "params": {
+        "side": "buy",
+        "allow_tested_once": false
+      },
+      "position": {
+        "x": 0,
+        "y": 120
+      }
+    },
+    {
+      "id": "ob_sell",
+      "type": "ob_query",
+      "params": {
+        "side": "sell",
+        "allow_tested_once": false
+      },
+      "position": {
+        "x": 0,
+        "y": 200
+      }
+    },
+    {
+      "id": "buy",
+      "type": "order",
+      "params": {
+        "side": "buy",
+        "entry_style": "ob_midpoint",
+        "sl_atr_multiplier": 1.5,
+        "tp_r_multiple": 3.0
+      },
+      "position": {
+        "x": 1560,
+        "y": 40
+      }
+    },
+    {
+      "id": "sell",
+      "type": "order",
+      "params": {
+        "side": "sell",
+        "entry_style": "ob_midpoint",
+        "sl_atr_multiplier": 1.5,
+        "tp_r_multiple": 3.0
+      },
+      "position": {
+        "x": 1560,
+        "y": 120
+      }
+    }
   ],
   "edges": [
-    { "id": "e1", "source": "ds", "target": "ma60" },
-    { "id": "e2", "source": "ds", "target": "ma80" },
-    { "id": "e3", "source": "ds", "target": "ma300" },
-    { "id": "e4", "source": "ma60", "target": "trend_n" },
-    { "id": "e5", "source": "ma80", "target": "trend_n" },
-    { "id": "e6", "source": "ma300", "target": "trend_n" },
-    { "id": "e7", "source": "ds", "target": "rsi_n" },
-    { "id": "e8", "source": "trend_n", "target": "cmp_bull" },
-    { "id": "e9", "source": "v_bull", "target": "cmp_bull" },
-    { "id": "e10", "source": "trend_n", "target": "cmp_neut" },
-    { "id": "e11", "source": "v_neut", "target": "cmp_neut" },
-    { "id": "e12", "source": "trend_n", "target": "cmp_bear" },
-    { "id": "e13", "source": "v_bear", "target": "cmp_bear" },
-    { "id": "e14", "source": "cmp_bull", "target": "or_buy_tf" },
-    { "id": "e15", "source": "cmp_neut", "target": "or_buy_tf" },
-    { "id": "e16", "source": "cmp_bear", "target": "or_sell_tf" },
-    { "id": "e17", "source": "cmp_neut", "target": "or_sell_tf" },
-    { "id": "e18", "source": "rsi_n", "target": "cmp_up" },
-    { "id": "e19", "source": "v_oversold", "target": "cmp_up" },
-    { "id": "e20", "source": "rsi_n", "target": "cmp_dn" },
-    { "id": "e21", "source": "v_overbought", "target": "cmp_dn" },
-    { "id": "e22", "source": "cmp_up", "target": "and_buy" },
-    { "id": "e23", "source": "or_buy_tf", "target": "and_buy" },
-    { "id": "e24", "source": "cmp_dn", "target": "and_sell" },
-    { "id": "e25", "source": "or_sell_tf", "target": "and_sell" },
-    { "id": "e26", "source": "and_buy", "target": "buy" },
-    { "id": "e27", "source": "ob_buy", "target": "buy" },
-    { "id": "e28", "source": "and_sell", "target": "sell" },
-    { "id": "e29", "source": "ob_sell", "target": "sell" }
+    {
+      "id": "e1",
+      "source": "ds",
+      "target": "ma60"
+    },
+    {
+      "id": "e2",
+      "source": "ds",
+      "target": "ma80"
+    },
+    {
+      "id": "e3",
+      "source": "ds",
+      "target": "ma300"
+    },
+    {
+      "id": "e4",
+      "source": "ma60",
+      "target": "trend_n"
+    },
+    {
+      "id": "e5",
+      "source": "ma80",
+      "target": "trend_n"
+    },
+    {
+      "id": "e6",
+      "source": "ma300",
+      "target": "trend_n"
+    },
+    {
+      "id": "e7",
+      "source": "ds",
+      "target": "rsi_n"
+    },
+    {
+      "id": "e8",
+      "source": "trend_n",
+      "target": "cmp_bull"
+    },
+    {
+      "id": "e9",
+      "source": "v_bull",
+      "target": "cmp_bull"
+    },
+    {
+      "id": "e10",
+      "source": "trend_n",
+      "target": "cmp_neut"
+    },
+    {
+      "id": "e11",
+      "source": "v_neut",
+      "target": "cmp_neut"
+    },
+    {
+      "id": "e12",
+      "source": "trend_n",
+      "target": "cmp_bear"
+    },
+    {
+      "id": "e13",
+      "source": "v_bear",
+      "target": "cmp_bear"
+    },
+    {
+      "id": "e14",
+      "source": "cmp_bull",
+      "target": "or_buy_tf"
+    },
+    {
+      "id": "e15",
+      "source": "cmp_neut",
+      "target": "or_buy_tf"
+    },
+    {
+      "id": "e16",
+      "source": "cmp_bear",
+      "target": "or_sell_tf"
+    },
+    {
+      "id": "e17",
+      "source": "cmp_neut",
+      "target": "or_sell_tf"
+    },
+    {
+      "id": "e18",
+      "source": "rsi_n",
+      "target": "cmp_up"
+    },
+    {
+      "id": "e19",
+      "source": "v_oversold",
+      "target": "cmp_up"
+    },
+    {
+      "id": "e20",
+      "source": "rsi_n",
+      "target": "cmp_dn"
+    },
+    {
+      "id": "e21",
+      "source": "v_overbought",
+      "target": "cmp_dn"
+    },
+    {
+      "id": "e22",
+      "source": "cmp_up",
+      "target": "and_buy"
+    },
+    {
+      "id": "e23",
+      "source": "or_buy_tf",
+      "target": "and_buy"
+    },
+    {
+      "id": "e24",
+      "source": "cmp_dn",
+      "target": "and_sell"
+    },
+    {
+      "id": "e25",
+      "source": "or_sell_tf",
+      "target": "and_sell"
+    },
+    {
+      "id": "e26",
+      "source": "and_buy",
+      "target": "buy"
+    },
+    {
+      "id": "e27",
+      "source": "ob_buy",
+      "target": "buy"
+    },
+    {
+      "id": "e28",
+      "source": "and_sell",
+      "target": "sell"
+    },
+    {
+      "id": "e29",
+      "source": "ob_sell",
+      "target": "sell"
+    }
   ]
 }

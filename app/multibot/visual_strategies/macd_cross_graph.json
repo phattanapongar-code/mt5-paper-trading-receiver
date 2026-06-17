@@ -1,27 +1,181 @@
 {
   "nodes": [
-    { "id": "ds", "type": "data_source", "params": { "timeframe": "M15" } },
-    { "id": "macd_n", "type": "macd", "params": { "fast": 12, "slow": 26, "signal": 9 } },
-    { "id": "macd_line", "type": "field", "params": { "field": "macd" } },
-    { "id": "macd_sig", "type": "field", "params": { "field": "macd_signal" } },
-    { "id": "cmp_up", "type": "compare", "params": { "operator": "cross_above" } },
-    { "id": "cmp_dn", "type": "compare", "params": { "operator": "cross_below" } },
-    { "id": "ob_buy", "type": "ob_query", "params": { "side": "buy", "allow_tested_once": false } },
-    { "id": "ob_sell", "type": "ob_query", "params": { "side": "sell", "allow_tested_once": false } },
-    { "id": "buy", "type": "order", "params": { "side": "buy", "entry_style": "ob_midpoint", "sl_atr_multiplier": 1.5, "tp_r_multiple": 3.0 } },
-    { "id": "sell", "type": "order", "params": { "side": "sell", "entry_style": "ob_midpoint", "sl_atr_multiplier": 1.5, "tp_r_multiple": 3.0 } }
+    {
+      "id": "ds",
+      "type": "data_source",
+      "params": {
+        "timeframe": "M15"
+      },
+      "position": {
+        "x": 0,
+        "y": 40
+      }
+    },
+    {
+      "id": "macd_n",
+      "type": "macd",
+      "params": {
+        "fast": 12,
+        "slow": 26,
+        "signal": 9
+      },
+      "position": {
+        "x": 260,
+        "y": 40
+      }
+    },
+    {
+      "id": "macd_line",
+      "type": "field",
+      "params": {
+        "field": "macd"
+      },
+      "position": {
+        "x": 520,
+        "y": 40
+      }
+    },
+    {
+      "id": "macd_sig",
+      "type": "field",
+      "params": {
+        "field": "macd_signal"
+      },
+      "position": {
+        "x": 520,
+        "y": 120
+      }
+    },
+    {
+      "id": "cmp_up",
+      "type": "compare",
+      "params": {
+        "operator": "cross_above"
+      },
+      "position": {
+        "x": 780,
+        "y": 120
+      }
+    },
+    {
+      "id": "cmp_dn",
+      "type": "compare",
+      "params": {
+        "operator": "cross_below"
+      },
+      "position": {
+        "x": 780,
+        "y": 40
+      }
+    },
+    {
+      "id": "ob_buy",
+      "type": "ob_query",
+      "params": {
+        "side": "buy",
+        "allow_tested_once": false
+      },
+      "position": {
+        "x": 0,
+        "y": 120
+      }
+    },
+    {
+      "id": "ob_sell",
+      "type": "ob_query",
+      "params": {
+        "side": "sell",
+        "allow_tested_once": false
+      },
+      "position": {
+        "x": 0,
+        "y": 200
+      }
+    },
+    {
+      "id": "buy",
+      "type": "order",
+      "params": {
+        "side": "buy",
+        "entry_style": "ob_midpoint",
+        "sl_atr_multiplier": 1.5,
+        "tp_r_multiple": 3.0
+      },
+      "position": {
+        "x": 1040,
+        "y": 40
+      }
+    },
+    {
+      "id": "sell",
+      "type": "order",
+      "params": {
+        "side": "sell",
+        "entry_style": "ob_midpoint",
+        "sl_atr_multiplier": 1.5,
+        "tp_r_multiple": 3.0
+      },
+      "position": {
+        "x": 1040,
+        "y": 120
+      }
+    }
   ],
   "edges": [
-    { "id": "e1", "source": "ds", "target": "macd_n" },
-    { "id": "e2", "source": "macd_n", "target": "macd_line" },
-    { "id": "e3", "source": "macd_n", "target": "macd_sig" },
-    { "id": "e4", "source": "macd_line", "target": "cmp_up" },
-    { "id": "e5", "source": "macd_sig", "target": "cmp_up" },
-    { "id": "e6", "source": "macd_line", "target": "cmp_dn" },
-    { "id": "e7", "source": "macd_sig", "target": "cmp_dn" },
-    { "id": "e8", "source": "cmp_up", "target": "buy" },
-    { "id": "e9", "source": "ob_buy", "target": "buy" },
-    { "id": "e10", "source": "cmp_dn", "target": "sell" },
-    { "id": "e11", "source": "ob_sell", "target": "sell" }
+    {
+      "id": "e1",
+      "source": "ds",
+      "target": "macd_n"
+    },
+    {
+      "id": "e2",
+      "source": "macd_n",
+      "target": "macd_line"
+    },
+    {
+      "id": "e3",
+      "source": "macd_n",
+      "target": "macd_sig"
+    },
+    {
+      "id": "e4",
+      "source": "macd_line",
+      "target": "cmp_up"
+    },
+    {
+      "id": "e5",
+      "source": "macd_sig",
+      "target": "cmp_up"
+    },
+    {
+      "id": "e6",
+      "source": "macd_line",
+      "target": "cmp_dn"
+    },
+    {
+      "id": "e7",
+      "source": "macd_sig",
+      "target": "cmp_dn"
+    },
+    {
+      "id": "e8",
+      "source": "cmp_up",
+      "target": "buy"
+    },
+    {
+      "id": "e9",
+      "source": "ob_buy",
+      "target": "buy"
+    },
+    {
+      "id": "e10",
+      "source": "cmp_dn",
+      "target": "sell"
+    },
+    {
+      "id": "e11",
+      "source": "ob_sell",
+      "target": "sell"
+    }
   ]
 }
