@@ -13,6 +13,9 @@ from app.indicators import sma, rsi, atr, ema, compute_indicators, bollinger_ban
 NodeHandler = Callable[[dict[str, Any], list[Any], dict[str, Any]], Any]
 _registry: dict[str, NodeHandler] = {}
 
+# Persistent cross-detection state across ticks (keyed by node_id:symbol:timeframe)
+_cross_state: dict[str, Any] = {}
+
 
 def register_node(node_type: str) -> Callable:
     def wrapper(fn: NodeHandler) -> NodeHandler:
@@ -39,6 +42,9 @@ def get_node_types() -> dict[str, str]:
         "macd": "MACD line, signal line, histogram",
         "value": "Constant value from params (for thresholds, trend strings, etc.)",
         "field": "Extract a named field from a dict input",
+        "price": "Current tick price (mid/bid/ask via param value)",
+        "ob_in_range": "Check if price is within OB zone (ob_low <= price <= ob_high)",
+        "ob_not_stale": "Check if OB is not older than max_age_candles param",
     }
 
 
@@ -203,9 +209,10 @@ def _handle_ob_query(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any
     order_col = "break_open_time" if "break_open_time" in ob_cols else "id"
 
     if side in ("buy", "sell"):
+        db_side = {"buy": "bullish", "sell": "bearish"}[side]
         row = storage.query_one(
             f"SELECT * FROM order_blocks WHERE symbol=? AND timeframe=? AND side=? AND is_strong=1 AND score>=? AND status IN ({placeholders}) ORDER BY {order_col} DESC, id DESC LIMIT 1",
-            (symbol, timeframe, side, min_score, *statuses),
+            (symbol, timeframe, db_side, min_score, *statuses),
         )
     else:
         row = storage.query_one(
@@ -282,12 +289,15 @@ def _handle_compare(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any]
         return False
     a, b = inputs[0], inputs[1]
     op = str(_params(node).get("operator", ">"))
+    nid = node.get("id", "?")
+    symbol = ctx.get("_symbol", "?")
+    tf = ctx.get("_timeframe", "?")
 
-    # cross_above / cross_below — compare two changing values
+    # cross_above / cross_below — compare two changing values (persistent state)
     if op in ("cross_above", "cross_below"):
-        prev_key = f"_prev:{node.get('id','?')}"
-        prev = ctx.get(prev_key)
-        ctx[prev_key] = (a, b)
+        state_key = f"cross:{nid}:{symbol}:{tf}"
+        prev = _cross_state.get(state_key)
+        _cross_state[state_key] = (a, b)
         if prev is None or a is None or b is None:
             return False
         prev_a, prev_b = prev
@@ -295,11 +305,11 @@ def _handle_compare(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any]
             return _crossed(prev_a, prev_b, a, b, "above")
         return _crossed(prev_a, prev_b, a, b, "below")
 
-    # cross_above_threshold / cross_below_threshold — value vs fixed threshold
+    # cross_above_threshold / cross_below_threshold — value vs fixed threshold (persistent state)
     if op in ("cross_above_threshold", "cross_below_threshold"):
-        prev_key = f"_prev_threshold:{node.get('id','?')}"
-        prev_val = ctx.get(prev_key)
-        ctx[prev_key] = a
+        state_key = f"cross_th:{nid}:{symbol}:{tf}"
+        prev_val = _cross_state.get(state_key)
+        _cross_state[state_key] = a
         try:
             threshold = float(b)
             cur_val = float(a) if a is not None else None
@@ -354,6 +364,75 @@ def _handle_not(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any]) ->
 
 
 # ── Order node ──
+
+
+@register_node("price")
+def _handle_price(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any]) -> float | None:
+    """Return current mid/bid/ask price from tick context."""
+    p = _params(node)
+    value = str(p.get("value", "mid")).lower()
+    bid = ctx.get("_bid")
+    ask = ctx.get("_ask")
+    if bid is None or ask is None:
+        return None
+    if value == "bid":
+        return float(bid)
+    if value == "ask":
+        return float(ask)
+    return (float(bid) + float(ask)) / 2
+
+
+@register_node("ob_in_range")
+def _handle_ob_in_range(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any]) -> bool:
+    """Check if a price is within the OB zone (ob_low <= price <= ob_high)."""
+    if len(inputs) < 2:
+        return False
+    ob = inputs[0]
+    price = inputs[1]
+    if not isinstance(ob, dict) or "ob_low" not in ob or "ob_high" not in ob:
+        return False
+    try:
+        low, high = float(ob["ob_low"]), float(ob["ob_high"])
+        mid = float(price)
+        return low <= mid <= high
+    except (TypeError, ValueError):
+        return False
+
+
+_TF_SECONDS = {"M1": 60, "M5": 300, "M15": 900, "H1": 3600}
+
+
+@register_node("ob_not_stale")
+def _handle_ob_not_stale(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any]) -> bool:
+    """Check if an OB is not too old (stale) based on max_age_candles."""
+    if not inputs:
+        return False
+    ob = inputs[0]
+    if not isinstance(ob, dict):
+        return False
+    p = _params(node)
+    max_age = int(p.get("max_age_candles", 20))
+    symbol = ctx.get("_symbol", "XAUUSD")
+    timeframe = ctx.get("_timeframe", "M15")
+    tf_sec = _TF_SECONDS.get(timeframe, 900)
+
+    break_time = ob.get("break_open_time")
+    if break_time is None:
+        return True
+    try:
+        break_time = int(break_time)
+    except (TypeError, ValueError):
+        return True
+
+    row = storage.query_one(
+        "SELECT open_time FROM candles WHERE symbol=? AND timeframe=? AND is_closed=1 ORDER BY open_time DESC LIMIT 1",
+        (symbol, timeframe),
+    )
+    if not row:
+        return True
+    latest_open = int(row["open_time"])
+    age_candles = (latest_open - break_time) // tf_sec
+    return age_candles <= max_age
 
 
 @register_node("order")

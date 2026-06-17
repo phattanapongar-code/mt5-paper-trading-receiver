@@ -19,9 +19,10 @@ def _candles(symbol: str, timeframe: str) -> list[dict[str, Any]]:
 def _find_ob(symbol: str, timeframe: str, side: str) -> dict[str, Any] | None:
     if not storage.table_exists("order_blocks"):
         return None
+    db_side = {"buy": "bullish", "sell": "bearish"}.get(side, side)
     return storage.query_one(
         "SELECT * FROM order_blocks WHERE symbol=? AND timeframe=? AND side=? AND is_strong=1 AND score>=6 AND status='active' ORDER BY break_open_time DESC LIMIT 1",
-        (symbol, timeframe, side),
+        (symbol, timeframe, db_side),
     )
 
 

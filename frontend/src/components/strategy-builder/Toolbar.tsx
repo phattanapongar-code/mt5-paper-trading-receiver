@@ -37,6 +37,9 @@ const NODE_ITEMS: ToolbarNode[] = [
   { type: 'ob_query', label: 'OB Query', color: '#f48fb1' },
   { type: 'bollinger', label: 'Bollinger', color: '#81d4fa' },
   { type: 'macd', label: 'MACD', color: '#a5d6a7' },
+  { type: 'price', label: 'Price', color: '#ff8a65' },
+  { type: 'ob_in_range', label: 'OB In Range', color: '#a1887f' },
+  { type: 'ob_not_stale', label: 'OB Not Stale', color: '#90a4ae' },
   { type: 'order', label: 'Order', color: '#f6465d' },
 ]
 
