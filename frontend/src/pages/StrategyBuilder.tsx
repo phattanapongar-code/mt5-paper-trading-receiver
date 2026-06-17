@@ -26,9 +26,8 @@ export interface StrategyGraph {
   edges: Array<{ id: string; source: string; target: string; type?: string }>
 }
 
-export default function StrategyBuilder() {
+function StrategyBuilderInner() {
   const { addToast } = useToast()
-  const { isAuthenticated, loading } = useAuth()
   const reactFlowInstance = useReactFlow()
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
@@ -246,25 +245,6 @@ export default function StrategyBuilder() {
     }
   }, [nodes, edges, addToast, testBid, testAsk])
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-canvas-dark">
-        <div className="animate-pulse text-muted text-sm font-mono">Initializing...</div>
-      </div>
-    )
-  }
-
-  if (!isAuthenticated) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-canvas-dark">
-        <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-8 max-w-md text-center">
-          <h1 className="text-4xl font-bold text-primary mb-2">404</h1>
-          <p className="text-sm text-muted mb-6">This page doesn't exist</p>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="flex h-screen bg-canvas-dark">
       {/* Toolbar */}
@@ -318,7 +298,6 @@ export default function StrategyBuilder() {
 
         {/* Canvas */}
         <div ref={reactFlowWrapper} className="flex-1 relative overflow-hidden" onDragOver={onDragOver} onDrop={onDrop}>
-          <ReactFlowProvider>
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -342,7 +321,6 @@ export default function StrategyBuilder() {
               maskColor="#0b0e11"
             />
           </ReactFlow>
-          </ReactFlowProvider>
         </div>
 
         {/* Bottom Bar */}
@@ -397,5 +375,34 @@ export default function StrategyBuilder() {
         />
       )}
     </div>
+  )
+}
+
+export default function StrategyBuilder() {
+  const { isAuthenticated, loading } = useAuth()
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-canvas-dark">
+        <div className="animate-pulse text-muted text-sm font-mono">Initializing...</div>
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-canvas-dark">
+        <div className="bg-surface-card-dark border border-hairline-on-dark rounded-lg p-8 max-w-md text-center">
+          <h1 className="text-4xl font-bold text-primary mb-2">404</h1>
+          <p className="text-sm text-muted mb-6">This page doesn't exist</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <ReactFlowProvider>
+      <StrategyBuilderInner />
+    </ReactFlowProvider>
   )
 }
