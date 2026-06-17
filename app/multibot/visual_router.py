@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import time
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -36,7 +38,7 @@ class VisualStrategyOut(BaseModel):
     updated_at: int
 
 
-# ── Init table ──
+# ── Init table + seed presets ──
 
 def ensure_table() -> None:
     storage.execute(
@@ -51,6 +53,30 @@ def ensure_table() -> None:
         )
         """
     )
+
+
+_GRAPH_DIR = Path(__file__).parent / "visual_strategies"
+
+
+def seed_presets() -> None:
+    """Seed preset graph JSON files into the visual_strategies table if not already present."""
+    ensure_table()
+    if not _GRAPH_DIR.is_dir():
+        return
+    now = int(time.time())
+    for fpath in sorted(_GRAPH_DIR.glob("*_graph.json")):
+        name = fpath.stem.replace("_graph", "").replace("_", " ").title()
+        try:
+            graph = json.loads(fpath.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        existing = storage.query_one("SELECT id FROM visual_strategies WHERE name=?", (name,))
+        if existing:
+            continue
+        storage.execute(
+            "INSERT OR IGNORE INTO visual_strategies(name, description, graph_json, created_at, updated_at) VALUES (?,?,?,?,?)",
+            (name, f"Preset: {name}", json.dumps(graph), now, now),
+        )
 
 
 # ── CRUD ──

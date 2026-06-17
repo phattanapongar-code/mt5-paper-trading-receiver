@@ -1,18 +1,25 @@
 {
   "nodes": [
-    { "id": "data_source_1", "type": "data_source", "params": { "symbol": "XAUUSD", "timeframe": "M15" } },
-    { "id": "rsi_14_1", "type": "rsi", "params": { "period": 14 } },
-    { "id": "compare_rsi_oversold", "type": "compare", "params": { "operator": ">=" } },
-    { "id": "compare_rsi_overbought", "type": "compare", "params": { "operator": "<=" } },
-    { "id": "atr_14_1", "type": "atr", "params": { "period": 14 } },
-    { "id": "order_buy", "type": "order", "params": { "side": "buy", "sl_atr_multiplier": 1.5, "tp_r_multiple": 3.0 } },
-    { "id": "order_sell", "type": "order", "params": { "side": "sell", "sl_atr_multiplier": 1.5, "tp_r_multiple": 3.0 } }
+    { "id": "ds", "type": "data_source", "params": { "timeframe": "M15" } },
+    { "id": "rsi_n", "type": "rsi", "params": { "period": 14 } },
+    { "id": "v_oversold", "type": "value", "params": { "value": 30 } },
+    { "id": "v_overbought", "type": "value", "params": { "value": 70 } },
+    { "id": "cmp_up", "type": "compare", "params": { "operator": "cross_above_threshold" } },
+    { "id": "cmp_dn", "type": "compare", "params": { "operator": "cross_below_threshold" } },
+    { "id": "ob_buy", "type": "ob_query", "params": { "side": "buy", "allow_tested_once": false } },
+    { "id": "ob_sell", "type": "ob_query", "params": { "side": "sell", "allow_tested_once": false } },
+    { "id": "buy", "type": "order", "params": { "side": "buy", "entry_style": "ob_midpoint", "sl_atr_multiplier": 1.5, "tp_r_multiple": 3.0 } },
+    { "id": "sell", "type": "order", "params": { "side": "sell", "entry_style": "ob_midpoint", "sl_atr_multiplier": 1.5, "tp_r_multiple": 3.0 } }
   ],
   "edges": [
-    { "source": "data_source_1", "target": "rsi_14_1" },
-    { "source": "rsi_14_1", "target": "compare_rsi_oversold" },
-    { "source": "rsi_14_1", "target": "compare_rsi_overbought" },
-    { "source": "compare_rsi_oversold", "target": "order_buy" },
-    { "source": "compare_rsi_overbought", "target": "order_sell" }
+    { "id": "e1", "source": "ds", "target": "rsi_n" },
+    { "id": "e2", "source": "rsi_n", "target": "cmp_up" },
+    { "id": "e3", "source": "v_oversold", "target": "cmp_up" },
+    { "id": "e4", "source": "rsi_n", "target": "cmp_dn" },
+    { "id": "e5", "source": "v_overbought", "target": "cmp_dn" },
+    { "id": "e6", "source": "cmp_up", "target": "buy" },
+    { "id": "e7", "source": "ob_buy", "target": "buy" },
+    { "id": "e8", "source": "cmp_dn", "target": "sell" },
+    { "id": "e9", "source": "ob_sell", "target": "sell" }
   ]
 }

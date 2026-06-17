@@ -35,6 +35,8 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan — startup and graceful shutdown."""
+    from app.multibot.visual_router import seed_presets
+    seed_presets()
     health_task = asyncio.create_task(_health_monitor())
     report_task = asyncio.create_task(_report_scheduler())
     tg_poll_task = asyncio.create_task(_telegram_poll_loop())

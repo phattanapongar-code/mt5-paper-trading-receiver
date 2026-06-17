@@ -5,7 +5,7 @@ from collections import deque
 from typing import Any, Callable
 
 from app import storage
-from app.indicators import sma, rsi, atr, ema
+from app.indicators import sma, rsi, atr, ema, compute_indicators, bollinger_bands, macd as macd_func, trend_from_ma
 
 
 # ── Node handler registry ──
@@ -28,11 +28,17 @@ def get_node_types() -> dict[str, str]:
         "rsi": "Relative Strength Index",
         "atr": "Average True Range",
         "ema": "Exponential Moving Average",
-        "compare": "Compare two values (>, <, >=, <=, ==, cross_above, cross_below)",
+        "compare": "Compare two values (>, <, >=, <=, ==, cross_above, cross_below, cross_above_threshold, cross_below_threshold)",
         "and": "Logical AND of multiple boolean inputs",
         "or": "Logical OR of multiple boolean inputs",
         "not": "Logical NOT of a boolean input",
-        "order": "Generate buy/sell decision",
+        "order": "Generate buy/sell decision (supports OB entry via 2nd input)",
+        "trend": "Trend direction from MA60/MA80/MA300 (BULLISH/BEARISH/NEUTRAL/WARMING_UP)",
+        "ob_query": "Query latest active strong order block from DB",
+        "bollinger": "Bollinger Bands (upper/middle/lower)",
+        "macd": "MACD line, signal line, histogram",
+        "value": "Constant value from params (for thresholds, trend strings, etc.)",
+        "field": "Extract a named field from a dict input",
     }
 
 
@@ -49,6 +55,14 @@ def _closes(symbol: str, timeframe: str, limit: int = 320) -> list[float]:
 def _candles(symbol: str, timeframe: str, limit: int = 50) -> list[dict[str, Any]]:
     rows = storage.query_all(
         "SELECT open, high, low, close FROM candles WHERE symbol=? AND timeframe=? AND is_closed=1 ORDER BY open_time DESC LIMIT ?",
+        (symbol, timeframe, limit),
+    )
+    return list(reversed(rows))
+
+
+def _ohlc_candles(symbol: str, timeframe: str, limit: int = 320) -> list[dict[str, Any]]:
+    rows = storage.query_all(
+        "SELECT open, high, low, close, is_closed FROM candles WHERE symbol=? AND timeframe=? AND is_closed=1 ORDER BY open_time DESC LIMIT ?",
         (symbol, timeframe, limit),
     )
     return list(reversed(rows))
@@ -75,6 +89,13 @@ def _pip_value(symbol: str) -> float:
     if "XAU" in s or "XAG" in s:
         return 0.1
     return 0.0001
+
+
+def _get_ob_input(inputs: list[Any]) -> dict[str, Any] | None:
+    for v in inputs[1:]:
+        if isinstance(v, dict) and "ob_low" in v and "ob_high" in v:
+            return v
+    return None
 
 
 # ── Node handlers ──
@@ -145,10 +166,114 @@ def _handle_ema(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any]) ->
     return result[-1] if result else None
 
 
+# ── New indicator nodes ──
+
+
+@register_node("trend")
+def _handle_trend(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any]) -> str:
+    """Trend direction from MA60/MA80/MA300."""
+    symbol = ctx.get("_symbol", "XAUUSD")
+    timeframe = ctx.get("_timeframe", "M15")
+    candles = _ohlc_candles(symbol, timeframe, 300)
+    if len(candles) < 60:
+        return "WARMING_UP"
+    result = compute_indicators(candles)
+    return str(result.get("trend", "NEUTRAL"))
+
+
+@register_node("ob_query")
+def _handle_ob_query(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any]) -> dict[str, Any] | None:
+    """Query latest active strong order block from DB."""
+    p = _params(node)
+    symbol = ctx.get("_symbol", "XAUUSD")
+    timeframe = ctx.get("_timeframe", "M15")
+    side = str(p.get("side", "both")).lower()
+    min_score = int(p.get("min_score", 6))
+    allow_tested_once = bool(p.get("allow_tested_once", True))
+
+    if not storage.table_exists("order_blocks"):
+        return None
+    ob_cols = storage.columns("order_blocks")
+    required = {"symbol", "timeframe", "side", "ob_low", "ob_high", "status", "score", "is_strong"}
+    if not required.issubset(ob_cols):
+        return None
+
+    statuses = ["active"] + (["tested_once"] if allow_tested_once else [])
+    placeholders = ",".join("?" for _ in statuses)
+    order_col = "break_open_time" if "break_open_time" in ob_cols else "id"
+
+    if side in ("buy", "sell"):
+        row = storage.query_one(
+            f"SELECT * FROM order_blocks WHERE symbol=? AND timeframe=? AND side=? AND is_strong=1 AND score>=? AND status IN ({placeholders}) ORDER BY {order_col} DESC, id DESC LIMIT 1",
+            (symbol, timeframe, side, min_score, *statuses),
+        )
+    else:
+        row = storage.query_one(
+            f"SELECT * FROM order_blocks WHERE symbol=? AND timeframe=? AND is_strong=1 AND score>=? AND status IN ({placeholders}) ORDER BY {order_col} DESC, id DESC LIMIT 1",
+            (symbol, timeframe, min_score, *statuses),
+        )
+    return dict(row) if row else None
+
+
+@register_node("bollinger")
+def _handle_bollinger(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any]) -> dict[str, float | None] | None:
+    """Bollinger Bands (upper/middle/lower)."""
+    p = _params(node)
+    period = int(p.get("period", 20))
+    std_dev = float(p.get("std_dev", 2.0))
+    symbol = ctx.get("_symbol", "XAUUSD")
+    timeframe = ctx.get("_timeframe", "M15")
+    cs = _closes(symbol, timeframe, period + 5)
+    return bollinger_bands(cs, period, std_dev)
+
+
+@register_node("macd")
+def _handle_macd(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any]) -> dict[str, float | None] | None:
+    """MACD line, signal line, histogram."""
+    p = _params(node)
+    fast = int(p.get("fast", 12))
+    slow = int(p.get("slow", 26))
+    signal = int(p.get("signal", 9))
+    symbol = ctx.get("_symbol", "XAUUSD")
+    timeframe = ctx.get("_timeframe", "M15")
+    cs = _closes(symbol, timeframe, slow + signal + 5)
+    return macd_func(cs, fast, slow, signal)
+
+
+@register_node("value")
+def _handle_value(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any]) -> Any:
+    """Output a fixed value from params (for constants like thresholds, trend strings)."""
+    return _params(node).get("value")
+
+
+@register_node("field")
+def _handle_field(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any]) -> Any:
+    """Extract a named field from a dict input (e.g. bb_upper from Bollinger result)."""
+    p = _params(node)
+    field = str(p.get("field", ""))
+    if not inputs or not field:
+        return None
+    val = inputs[0]
+    if isinstance(val, dict):
+        return val.get(field)
+    return None
+
+
+# ── Logic gate nodes ──
+
+
 def _crossed(prev_a: float, prev_b: float, cur_a: float, cur_b: float, direction: str = "above") -> bool:
     if direction == "above":
         return prev_a <= prev_b and cur_a > cur_b
     return prev_a >= prev_b and cur_a < cur_b
+
+
+def _crossed_threshold(prev_val: float | None, cur_val: float | None, threshold: float, direction: str = "above") -> bool:
+    if prev_val is None or cur_val is None:
+        return False
+    if direction == "above":
+        return prev_val < threshold and cur_val >= threshold
+    return prev_val > threshold and cur_val <= threshold
 
 
 @register_node("compare")
@@ -158,7 +283,7 @@ def _handle_compare(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any]
     a, b = inputs[0], inputs[1]
     op = str(_params(node).get("operator", ">"))
 
-    # cross_above / cross_below need history — fetch prev values from ctx
+    # cross_above / cross_below — compare two changing values
     if op in ("cross_above", "cross_below"):
         prev_key = f"_prev:{node.get('id','?')}"
         prev = ctx.get(prev_key)
@@ -170,8 +295,28 @@ def _handle_compare(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any]
             return _crossed(prev_a, prev_b, a, b, "above")
         return _crossed(prev_a, prev_b, a, b, "below")
 
+    # cross_above_threshold / cross_below_threshold — value vs fixed threshold
+    if op in ("cross_above_threshold", "cross_below_threshold"):
+        prev_key = f"_prev_threshold:{node.get('id','?')}"
+        prev_val = ctx.get(prev_key)
+        ctx[prev_key] = a
+        try:
+            threshold = float(b)
+            cur_val = float(a) if a is not None else None
+        except (TypeError, ValueError):
+            return False
+        return _crossed_threshold(prev_val, cur_val, threshold, "above" if op == "cross_above_threshold" else "below")
+
     if a is None or b is None:
         return False
+
+    # String equality (for trend comparisons)
+    if op == "==" and isinstance(a, str) and isinstance(b, str):
+        return a == b
+    if op == "!=" and isinstance(a, str) and isinstance(b, str):
+        return a != b
+
+    # Numeric comparisons
     try:
         a, b = float(a), float(b)
     except (TypeError, ValueError):
@@ -186,6 +331,8 @@ def _handle_compare(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any]
         return a <= b
     if op == "==":
         return abs(a - b) < 0.0001
+    if op == "!=":
+        return abs(a - b) >= 0.0001
     return False
 
 
@@ -206,6 +353,9 @@ def _handle_not(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any]) ->
     return not bool(inputs[0])
 
 
+# ── Order node ──
+
+
 @register_node("order")
 def _handle_order(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any]) -> dict[str, Any] | None:
     if not inputs or not bool(inputs[0]):
@@ -216,34 +366,79 @@ def _handle_order(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any]) 
         return None
     symbol = ctx.get("_symbol", "XAUUSD")
     timeframe = ctx.get("_timeframe", "M15")
-    atr_period = int(p.get("atr_period", 14))
-    atr_val = _atr_value(symbol, timeframe, atr_period)
-    if atr_val is None or atr_val <= 0:
-        return None
-    pip_val = _pip_value(symbol)
-    sl_mult = float(p.get("sl_atr_multiplier", 1.5))
-    tp_mult = float(p.get("tp_r_multiple", 2.0))
-
-    # Get latest bid/ask from context
     bid = ctx.get("_bid")
     ask = ctx.get("_ask")
     if bid is None or ask is None:
         return None
 
-    entry = ask if side == "buy" else bid
-    sl_distance = atr_val * sl_mult
+    atr_period = int(p.get("atr_period", 14))
+    atr_val = _atr_value(symbol, timeframe, atr_period)
+    if atr_val is None or atr_val <= 0:
+        atr_val = 0.0
 
-    if side == "buy":
-        sl = entry - sl_distance
-        tp = entry + sl_distance * tp_mult
+    sl_mult = float(p.get("sl_atr_multiplier", 1.5))
+    tp_mult = float(p.get("tp_r_multiple", 2.0))
+    entry_style = str(p.get("entry_style", "atr"))
+
+    # Check for OB data in additional inputs
+    ob = _get_ob_input(inputs)
+
+    if ob and entry_style != "atr":
+        ob_low = float(ob["ob_low"])
+        ob_high = float(ob["ob_high"])
+        ob_range = ob_high - ob_low
+
+        if entry_style == "ob_boundary":
+            # trend_ob style: entry at OB boundary, SL beyond opposite end + buffer
+            buffer_ratio = float(p.get("sl_buffer_ratio", 0.30))
+            buffer = ob_range * buffer_ratio
+            if side == "buy":
+                entry = ob_high
+                sl = ob_low - buffer
+            else:
+                entry = ob_low
+                sl = ob_high + buffer
+
+        elif entry_style == "ob_midpoint":
+            # bb_breakout/macd_cross/rsi_meanrev style: entry at midpoint
+            entry = (ob_low + ob_high) / 2
+            atr_buffer = max(atr_val * 0.3, ob_range * 0.1) if atr_val > 0 else ob_range * 0.1
+            if side == "buy":
+                sl = ob_low - atr_buffer
+            else:
+                sl = ob_high + atr_buffer
+
+        else:
+            # fallback to ATR-based
+            entry = ask if side == "buy" else bid
+            sl_distance = atr_val * sl_mult
+            sl = entry - sl_distance if side == "buy" else entry + sl_distance
+
+        risk_distance = abs(entry - sl)
+        if risk_distance <= 0:
+            return None
+        tp = entry + risk_distance * tp_mult if side == "buy" else entry - risk_distance * tp_mult
+        rr = abs(tp - entry) / risk_distance
+        ob_key = f"visual_ob:{ob.get('side','?')}:{ob.get('break_open_time','?')}:{ob.get('ob_open_time','?')}"
+
     else:
-        sl = entry + sl_distance
-        tp = entry - sl_distance * tp_mult
+        # ATR-based (original behavior)
+        entry = ask if side == "buy" else bid
+        sl_distance = atr_val * sl_mult if atr_val > 0 else 0.0
 
-    risk_distance = abs(entry - sl)
-    if risk_distance <= 0:
-        return None
-    rr = abs(tp - entry) / risk_distance
+        if side == "buy":
+            sl = entry - sl_distance
+            tp = entry + sl_distance * tp_mult
+        else:
+            sl = entry + sl_distance
+            tp = entry - sl_distance * tp_mult
+
+        risk_distance = abs(entry - sl)
+        if risk_distance <= 0:
+            return None
+        rr = abs(tp - entry) / risk_distance
+        ob_key = None
+
     if rr < 1.5:
         return None
 
@@ -252,7 +447,7 @@ def _handle_order(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any]) 
         "entry": round(entry, 2),
         "stop_loss": round(sl, 2),
         "take_profit": round(tp, 2),
-        "ob_key": None,
+        "ob_key": ob_key,
         "risk_reward": round(rr, 2),
     }
 
