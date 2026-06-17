@@ -4,9 +4,10 @@ interface ConfigPanelProps {
   node: Node
   onUpdate: (nodeId: string, params: Record<string, unknown>) => void
   onClose: () => void
+  onDelete: (nodeId: string) => void
 }
 
-export default function ConfigPanel({ node, onUpdate, onClose }: ConfigPanelProps) {
+export default function ConfigPanel({ node, onUpdate, onClose, onDelete }: ConfigPanelProps) {
   const d = node.data as Record<string, unknown>
   const params = (d.params as Record<string, unknown>) ?? {}
   const color = (d.color as string) ?? '#FCD535'
@@ -135,6 +136,14 @@ export default function ConfigPanel({ node, onUpdate, onClose }: ConfigPanelProp
             </label>
           </>
         )}
+      </div>
+      <div className="p-3 border-t border-hairline-on-dark">
+        <button
+          onClick={() => onDelete(node.id)}
+          className="w-full px-3 py-1.5 text-xs bg-red-600/20 text-red-400 border border-red-500/50 rounded cursor-pointer hover:bg-red-600/30"
+        >
+          Delete Node
+        </button>
       </div>
     </div>
   )
