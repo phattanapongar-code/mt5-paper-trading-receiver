@@ -56,6 +56,11 @@ class Settings:
     gap_max_percent: float = float(os.getenv("GAP_MAX_PERCENT", "0.5"))
     gap_threshold_seconds: int = int(os.getenv("GAP_THRESHOLD_SECONDS", "3600"))
 
+    # ── Gap Auto-Fill (pull missing M1 candles from MT5 sender) ──
+    sender_url: str = os.getenv("SENDER_URL", "")
+    gap_auto_fill_enabled: bool = _bool("GAP_AUTO_FILL_ENABLED", "false")
+    gap_fill_threshold_seconds: int = int(os.getenv("GAP_FILL_THRESHOLD_SECONDS", "300"))
+
     # ── Real Trading (trader.py) ──
     trade_host: str = os.getenv("TRADE_HOST", "0.0.0.0")
     trade_port: int = int(os.getenv("TRADE_PORT", "5051"))

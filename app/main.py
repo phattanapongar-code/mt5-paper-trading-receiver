@@ -21,6 +21,7 @@ from app.models import CloseOrderRequest, HistoryImportRequest, OpenOrderRequest
 from app.market_structure import MarketStructureEngine
 from app.order_blocks import OrderBlockEngine
 from app.replay import ReplayEngine
+from app import gap_filler
 from app.multibot import service as multibot
 from app.multibot.runtime import process_tick_sync, hub
 from app.multibot.router import router as multibot_router
@@ -224,6 +225,9 @@ async def receive_price(payload: TickPayload) -> dict[str, Any]:
             candle_result["rebuilt_from_m1"] = rebuild_result
             # Rebuild closes higher-timeframe candles, so refresh structure/OB
             closed_tfs.extend(tf for tf in ["M1", "M5", "M15", "H1"])
+
+        if settings.gap_auto_fill_enabled and settings.sender_url:
+            gap_filler.check_and_fill(candles, payload.symbol, now)
 
         struct_res = structure.refresh_timeframes(payload.symbol, closed_tfs) if closed_tfs else {}
         ob_res = order_blocks.refresh_timeframes(payload.symbol, closed_tfs) if closed_tfs else {}
