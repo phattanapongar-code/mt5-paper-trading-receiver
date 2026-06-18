@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from collections import deque
 from typing import Any, Callable
 
@@ -45,6 +46,32 @@ _registry: dict[str, NodeHandler] = {}
 
 # Persistent cross-detection state across ticks (keyed by node_id:symbol:timeframe)
 _cross_state: dict[str, Any] = {}
+_warmed_up: set[str] = set()  # track which (symbol:timeframe) pairs have been warmed up
+
+
+def load_cross_state(conn: Any) -> None:
+    """Load cross_state from DB (survives server restart)."""
+    global _cross_state
+    try:
+        row = conn.execute(
+            "SELECT value FROM multibot_runtime_settings WHERE key='visual_cross_state'"
+        ).fetchone()
+        if row and row[0]:
+            _cross_state.update(json.loads(str(row[0])))
+    except Exception:
+        _cross_state.clear()
+
+
+def save_cross_state(conn: Any) -> None:
+    """Save cross_state to DB so it survives server restart."""
+    try:
+        val = json.dumps(_cross_state)
+        conn.execute(
+            "INSERT OR REPLACE INTO multibot_runtime_settings(key, value, updated_at) VALUES(?, ?, ?)",
+            ("visual_cross_state", val, int(time.time())),
+        )
+    except Exception:
+        pass
 
 
 def register_node(node_type: str) -> Callable:
@@ -78,6 +105,36 @@ def get_node_types() -> dict[str, str]:
     }
 
 
+def warmup_cross_state(
+    graph_def: dict[str, Any],
+    symbol: str,
+    timeframe: str,
+    conn: Any,
+) -> None:
+    """Warm up cross_state by running the graph on recent closed candles.
+
+    This lets cross_above/cross_below detection work immediately after
+    server restart, without waiting for a new candle close.
+    """
+    key = f"{symbol}:{timeframe}"
+    if key in _warmed_up:
+        return
+    rows = storage.query_all(
+        "SELECT open, high, low, close FROM candles WHERE symbol=? AND timeframe=? AND is_closed=1 ORDER BY open_time DESC LIMIT 3",
+        (symbol, timeframe),
+    )
+    if len(rows) < 2:
+        _warmed_up.add(key)
+        return
+    candles = list(reversed(rows))
+    for c in candles:
+        mid = (c["high"] + c["low"]) / 2.0
+        execute_graph(graph_def, bid=mid, ask=mid + 0.01, symbol=symbol, timeframe=timeframe)
+    # Save warmed-up state to DB immediately
+    save_cross_state(conn)
+    _warmed_up.add(key)
+
+
 # ── Helpers ──
 
 def _closes(symbol: str, timeframe: str, limit: int = 320) -> list[float]:
@@ -106,7 +163,7 @@ def _ohlc_candles(symbol: str, timeframe: str, limit: int = 320) -> list[dict[st
 
 def _latest_candle(symbol: str, timeframe: str) -> dict[str, Any] | None:
     return storage.query_one(
-        "SELECT open, high, low, close, volume FROM candles WHERE symbol=? AND timeframe=? AND is_closed=1 ORDER BY open_time DESC LIMIT 1",
+        "SELECT open, high, low, close, tick_count AS volume FROM candles WHERE symbol=? AND timeframe=? AND is_closed=1 ORDER BY open_time DESC LIMIT 1",
         (symbol, timeframe),
     )
 
@@ -226,6 +283,7 @@ def _handle_ob_query(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any
     side = str(p.get("side", "both")).lower()
     min_score = int(p.get("min_score", 6))
     allow_tested_once = bool(p.get("allow_tested_once", True))
+    max_distance_atr = float(p.get("max_distance_atr", 0))
 
     if not storage.table_exists("order_blocks"):
         return None
@@ -249,7 +307,23 @@ def _handle_ob_query(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any
             f"SELECT * FROM order_blocks WHERE symbol=? AND timeframe=? AND is_strong=1 AND score>=? AND status IN ({placeholders}) ORDER BY {order_col} DESC, id DESC LIMIT 1",
             (symbol, timeframe, min_score, *statuses),
         )
-    return dict(row) if row else None
+    if not row:
+        return None
+    ob = dict(row)
+
+    # Filter by max_distance_atr: skip OBs too far from current price
+    if max_distance_atr > 0:
+        bid = ctx.get("_bid")
+        ask = ctx.get("_ask")
+        if bid is not None and ask is not None:
+            mid = (float(bid) + float(ask)) / 2
+            ob_mid = (float(ob["ob_low"]) + float(ob["ob_high"])) / 2
+            distance = abs(mid - ob_mid)
+            atr_val = _atr_value(symbol, timeframe, 14)
+            if atr_val and atr_val > 0 and (distance / atr_val) > max_distance_atr:
+                return None
+
+    return ob
 
 
 @register_node("bollinger")
@@ -378,7 +452,8 @@ def _handle_compare(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any]
 
 @register_node("and")
 def _handle_and(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any]) -> bool:
-    return all(bool(v) for v in inputs if v is not None)
+    # None = no data / filtered out → treat as False
+    return all(bool(v) for v in inputs)
 
 
 @register_node("or")
@@ -493,6 +568,11 @@ def _handle_order(node: dict[str, Any], inputs: list[Any], ctx: dict[str, Any]) 
     ob = _get_ob_input(inputs)
 
     if ob and entry_style != "atr":
+        # Skip if price is too far from OB zone (>3 ATR away)
+        ob_mid = (float(ob["ob_low"]) + float(ob["ob_high"])) / 2
+        cur_mid = (float(bid) + float(ask)) / 2
+        if atr_val > 0 and abs(cur_mid - ob_mid) / atr_val > 3.0:
+            return None
         ob_low = float(ob["ob_low"])
         ob_high = float(ob["ob_high"])
         ob_range = ob_high - ob_low

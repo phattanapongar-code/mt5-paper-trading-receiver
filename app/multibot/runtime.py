@@ -482,6 +482,11 @@ def process_tick_sync(tick: dict[str, Any]) -> dict[str, Any]:
     processed = 0
     errors: list[dict[str, Any]] = []
     with storage.transaction() as conn:
+        from app.multibot.visual_engine import execute_graph, get_visual_graph, load_cross_state, save_cross_state, warmup_cross_state
+
+        # Load cross_state on first tick so cross detection survives restart
+        load_cross_state(conn)
+
         rows = conn.execute(
             """
             SELECT b.*,w.id AS wallet_id,w.balance,w.initial_balance
@@ -495,6 +500,12 @@ def process_tick_sync(tick: dict[str, Any]) -> dict[str, Any]:
             bot = dict(row)
             try:
                 conn.execute(f"SAVEPOINT bot_{bot['id']}")
+
+                # Warm up cross_state for this bot's graph on first tick after restart
+                graph = get_visual_graph(conn, bot)
+                if graph:
+                    warmup_cross_state(graph, str(bot.get("symbol", "XAUUSD")), str(bot.get("timeframe", "M15")), conn)
+
                 _evaluate_bot(conn, bot, tick, now)
                 conn.execute(f"RELEASE bot_{bot['id']}")
                 processed += 1
@@ -506,6 +517,10 @@ def process_tick_sync(tick: dict[str, Any]) -> dict[str, Any]:
                 alert_engine.notify_error(bot.get("name", "?"), str(exc), bot_id=bot["id"])
                 _log_safe(conn, bot["id"], f"eval_error [{bot.get('name','?')}]", exc)
                 errors.append({"bot_id": bot["id"], "error": str(exc)})
+
+        # Save cross_state so it survives server restart
+        save_cross_state(conn)
+
     result: dict[str, Any] = {"ok": True, "processed_bots": processed, "tick": tick}
     if errors:
         result["errors"] = errors
