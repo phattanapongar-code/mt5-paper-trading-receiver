@@ -1,0 +1,232 @@
+- generic [ref=e5]:
+  - complementary [ref=e6]:
+    - generic [ref=e7]:
+      - generic [ref=e8]: PAPER TRADING
+      - generic [ref=e9]: All
+      - button [ref=e10] [cursor=pointer]:
+        - img [ref=e11]
+    - generic [ref=e13]:
+      - combobox [ref=e14] [cursor=pointer]:
+        - option "All Bots" [selected]
+        - option "phet"
+      - button "phet" [ref=e16] [cursor=pointer]: phet
+    - generic [ref=e19]:
+      - generic [ref=e20]: Symbol
+      - combobox [ref=e21] [cursor=pointer]:
+        - option "EURUSD"
+        - option "GBPUSD"
+        - option "XAUUSD" [selected]
+    - navigation [ref=e22]:
+      - generic [ref=e23]: Paper Trading
+      - link "Overview" [ref=e24] [cursor=pointer]:
+        - /url: /
+        - img [ref=e26]
+        - generic [ref=e28]: Overview
+      - link "Charts" [ref=e29] [cursor=pointer]:
+        - /url: /charts
+        - img [ref=e31]
+        - generic [ref=e32]: Charts
+      - link "Bots" [ref=e33] [cursor=pointer]:
+        - /url: /bots
+        - img [ref=e35]
+        - generic [ref=e37]: Bots
+      - link "Compare" [ref=e38] [cursor=pointer]:
+        - /url: /compare
+        - img [ref=e40]
+        - generic [ref=e42]: Compare
+      - link "Trade History" [ref=e43] [cursor=pointer]:
+        - /url: /trades
+        - img [ref=e45]
+        - generic [ref=e48]: Trade History
+      - link "Manual Trade" [ref=e49] [cursor=pointer]:
+        - /url: /trade
+        - img [ref=e51]
+        - generic [ref=e53]: Manual Trade
+      - link "Signals" [ref=e54] [cursor=pointer]:
+        - /url: /signals
+        - img [ref=e56]
+        - generic [ref=e59]: Signals
+      - link "Performance" [ref=e60] [cursor=pointer]:
+        - /url: /performance
+        - img [ref=e62]
+        - generic [ref=e65]: Performance
+      - link "Structure" [ref=e66] [cursor=pointer]:
+        - /url: /market-structure
+        - img [ref=e68]
+        - generic [ref=e72]: Structure
+      - link "Pending" [ref=e73] [cursor=pointer]:
+        - /url: /pending-orders
+        - img [ref=e75]
+        - generic [ref=e78]: Pending
+      - generic [ref=e80]: Live Trading
+      - link "Live Trading" [ref=e81] [cursor=pointer]:
+        - /url: /live
+        - img [ref=e83]
+        - generic [ref=e85]: Live Trading
+      - link "Live History" [ref=e86] [cursor=pointer]:
+        - /url: /live/history
+        - img [ref=e88]
+        - generic [ref=e91]: Live History
+      - link "Settings" [ref=e93] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e95]
+        - generic [ref=e98]: Settings
+      - link "Replay" [ref=e99] [cursor=pointer]:
+        - /url: /replay
+        - img [ref=e101]
+        - generic [ref=e103]: Replay
+      - link "Backtest" [ref=e104] [cursor=pointer]:
+        - /url: /backtest
+        - img [ref=e106]
+        - generic [ref=e109]: Backtest
+      - link "Strategy Builder" [ref=e110] [cursor=pointer]:
+        - /url: /strategies/builder
+        - img [ref=e112]
+        - generic [ref=e115]: Strategy Builder
+    - generic [ref=e116]:
+      - button "Light Mode" [ref=e117] [cursor=pointer]:
+        - img [ref=e119]
+        - generic [ref=e125]: Light Mode
+      - button "Logout" [ref=e126] [cursor=pointer]:
+        - img [ref=e128]
+        - generic [ref=e131]: Logout
+  - main [ref=e132]:
+    - generic [ref=e133]:
+      - generic [ref=e134]:
+        - generic [ref=e135]:
+          - button "←" [ref=e136] [cursor=pointer]
+          - heading "phet" [level=1] [ref=e137]
+          - generic [ref=e138]: Visual
+          - generic [ref=e139]: XAUUSD M15
+        - generic [ref=e140]:
+          - button "Clone" [ref=e141] [cursor=pointer]
+          - button "ENABLED" [ref=e142] [cursor=pointer]
+      - generic [ref=e143]:
+        - generic [ref=e144]:
+          - paragraph [ref=e145]: Wallet Balance
+          - paragraph [ref=e146]: $500.00
+          - paragraph [ref=e147]: "Initial: $500.00"
+        - generic [ref=e148]:
+          - paragraph [ref=e149]: Realized PnL
+          - paragraph [ref=e150]: +$0.00
+        - generic [ref=e151]:
+          - paragraph [ref=e152]: Runtime
+          - generic [ref=e153]:
+            - paragraph [ref=e154]: "Trend: BULLISH"
+            - paragraph [ref=e155]: "Consecutive Losses: 0"
+            - paragraph [ref=e156]:
+              - text: "Daily PnL:"
+              - generic [ref=e157]: $0.00
+      - generic [ref=e158]:
+        - button "Reset Wallet" [ref=e159] [cursor=pointer]
+        - button "Backtest" [ref=e160] [cursor=pointer]
+      - generic [ref=e161]:
+        - button "Info" [ref=e162] [cursor=pointer]
+        - button "Signal Logs (0)" [ref=e163] [cursor=pointer]
+        - button "Costs" [ref=e164] [cursor=pointer]
+      - generic [ref=e165]:
+        - generic [ref=e166]:
+          - heading "Bot Settings" [level=2] [ref=e167]
+          - generic [ref=e168]:
+            - generic [ref=e169]:
+              - generic [ref=e170]: Name
+              - textbox [ref=e171]: phet
+            - generic [ref=e172]:
+              - generic [ref=e173]: Symbol
+              - combobox [ref=e174]:
+                - option "EURUSD"
+                - option "GBPUSD"
+                - option "XAUUSD" [selected]
+            - generic [ref=e175]:
+              - generic [ref=e176]: Timeframe
+              - combobox [ref=e177]:
+                - option "M1"
+                - option "M5"
+                - option "M15" [selected]
+                - option "H1"
+            - generic [ref=e178]:
+              - generic [ref=e179]: Strategy
+              - combobox [ref=e180]:
+                - option "— None —" [selected]
+            - button "Save Changes" [ref=e182] [cursor=pointer]
+          - heading "Strategy Parameters" [level=2] [ref=e183]
+          - generic [ref=e184]:
+            - generic [ref=e185]:
+              - paragraph [ref=e186]: Risk Management
+              - generic [ref=e187]:
+                - generic [ref=e188]:
+                  - generic [ref=e189]:
+                    - generic [ref=e190]: Risk Per Trade
+                    - generic [ref=e191]: 1.0%
+                  - slider [ref=e192] [cursor=pointer]: "1"
+                - generic [ref=e193]:
+                  - generic [ref=e194]:
+                    - generic [ref=e195]: Daily Loss Limit
+                    - generic [ref=e196]: 3%
+                  - slider [ref=e197] [cursor=pointer]: "3"
+                - generic [ref=e198]:
+                  - generic [ref=e199]:
+                    - generic [ref=e200]: Max Consecutive Losses
+                    - generic [ref=e201]: "3"
+                  - slider [ref=e202] [cursor=pointer]: "3"
+                - generic [ref=e203]:
+                  - generic [ref=e204]:
+                    - generic [ref=e205]: Drawdown Alert
+                    - generic [ref=e206]: 10%
+                  - slider [ref=e207] [cursor=pointer]: "10"
+            - generic [ref=e208]:
+              - paragraph [ref=e209]: Order Block
+              - generic [ref=e210]:
+                - generic [ref=e211]:
+                  - generic [ref=e212]:
+                    - generic [ref=e213]: OB Strong Score
+                    - generic [ref=e214]: "6"
+                  - slider [ref=e215] [cursor=pointer]: "6"
+                - generic [ref=e216]:
+                  - generic [ref=e217]:
+                    - generic [ref=e218]: TP Multiple (R)
+                    - generic [ref=e219]: 2x
+                  - slider [ref=e220] [cursor=pointer]: "2"
+                - generic [ref=e221]:
+                  - generic [ref=e222]:
+                    - generic [ref=e223]: SL Buffer Ratio
+                    - generic [ref=e224]: "0.3"
+                  - slider [ref=e225] [cursor=pointer]: "0.3"
+                - generic [ref=e226]:
+                  - generic [ref=e227]: Allow Tested Once
+                  - button [ref=e228] [cursor=pointer]
+                - generic [ref=e230]:
+                  - generic [ref=e231]: M5 Confirmation Required
+                  - button [ref=e232] [cursor=pointer]
+            - generic [ref=e234]:
+              - paragraph [ref=e235]: Trailing Stop
+              - generic [ref=e237]:
+                - generic [ref=e238]: Enabled
+                - button [ref=e239] [cursor=pointer]
+          - button "Save Params" [ref=e241] [cursor=pointer]
+          - group [ref=e242]:
+            - generic "Advanced (JSON)" [ref=e243] [cursor=pointer]
+          - generic [ref=e244]:
+            - heading "Telegram Alert Chat" [level=2] [ref=e245]
+            - generic [ref=e246]:
+              - textbox "-100123456789 (leave empty = use global)" [ref=e247]
+              - button "Save" [ref=e248] [cursor=pointer]
+            - paragraph [ref=e249]: Set a custom Telegram chat for this bot. Leave empty to use the global chat from Settings.
+        - generic [ref=e250]:
+          - heading "Stats" [level=2] [ref=e251]
+          - generic [ref=e252]:
+            - generic [ref=e253]:
+              - generic [ref=e254]: Total Realized PnL
+              - generic [ref=e255]: $0.00
+            - generic [ref=e256]:
+              - generic [ref=e257]: Total Trades
+              - generic [ref=e258]: "0"
+            - generic [ref=e259]:
+              - generic [ref=e260]: Wins / Losses
+              - generic [ref=e261]: 0 / 0
+            - generic [ref=e262]:
+              - generic [ref=e263]: Net PnL
+              - generic [ref=e264]: $0.00
+            - generic [ref=e265]:
+              - generic [ref=e266]: Max Drawdown
+              - generic [ref=e267]: $0.00

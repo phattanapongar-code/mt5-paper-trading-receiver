@@ -4,6 +4,12 @@ import client from '../api/client'
 import { useToast } from '../components/Toast'
 import type { BotState, Wallet, Trade, BotSignalLog, BotStats, BotCosts } from '../types/api'
 
+interface VisualStrategySummary {
+  id: number
+  name: string
+  description?: string
+}
+
 type Tab = 'info' | 'signals' | 'costs'
 
 export default function BotDetail() {
@@ -25,6 +31,8 @@ export default function BotDetail() {
   const [showCloneModal, setShowCloneModal] = useState(false)
   const [symbols, setSymbols] = useState<string[]>([])
   const [alertChatId, setAlertChatId] = useState('')
+  const [strategies, setStrategies] = useState<VisualStrategySummary[]>([])
+  const [editStrategyId, setEditStrategyId] = useState<number | null>(null)
 
   const botStats: BotStats = useMemo(() => {
     const closed = trades.filter(t => t.status === 'closed')
@@ -84,6 +92,9 @@ export default function BotDetail() {
     client.get<{ symbols: string[] }>('/symbols').then(res => {
       if (res.data.symbols?.length) setSymbols(res.data.symbols)
     }).catch(() => {})
+    client.get<VisualStrategySummary[]>('/visual-strategies').then(res => {
+      if (Array.isArray(res.data)) setStrategies(res.data)
+    }).catch(() => {})
     const interval = setInterval(fetchData, 3000)
     return () => clearInterval(interval)
   }, [fetchData])
@@ -94,6 +105,7 @@ export default function BotDetail() {
       setEditName(state.bot.name)
       setEditSymbol(state.bot.symbol)
       setEditTf(state.bot.timeframe)
+      setEditStrategyId(state.bot.visual_strategy_id ?? null)
     }
   }, [state?.bot])
 
@@ -112,11 +124,11 @@ export default function BotDetail() {
   }, [botId, fetchData, addToast])
 
   const saveEdit = useCallback(async () => {
-    await client.put(`/bots/${botId}`, { name: editName, symbol: editSymbol, timeframe: editTf })
+    await client.put(`/bots/${botId}`, { name: editName, symbol: editSymbol, timeframe: editTf, visual_strategy_id: editStrategyId })
     setTab('info')
     addToast('Bot updated', 'success')
     fetchData()
-  }, [botId, editName, editSymbol, editTf, fetchData, addToast])
+  }, [botId, editName, editSymbol, editTf, editStrategyId, fetchData, addToast])
 
   const openCloneModal = useCallback(() => {
     setCloneName((state?.bot?.name ?? '') + ' (clone)')
@@ -297,6 +309,16 @@ export default function BotDetail() {
                   <option value="M5">M5</option>
                   <option value="M15">M15</option>
                   <option value="H1">H1</option>
+                </select>
+              </div>
+              <div className="col-span-3">
+                <label className="block text-xs text-muted mb-1">Strategy</label>
+                <select value={editStrategyId ?? ''} onChange={(e) => setEditStrategyId(e.target.value ? Number(e.target.value) : null)}
+                  className="w-full px-2 py-1.5 bg-surface-elevated-dark border border-hairline-on-dark rounded text-sm text-body focus:outline-none focus:border-primary">
+                  <option value="">— None —</option>
+                  {strategies.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
                 </select>
               </div>
               <div className="col-span-3 flex justify-end">

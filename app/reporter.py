@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 def _bot_report(bot_id: int, bot_name: str, day: str) -> str | None:
-    from app.multibot.db import _decode
+    from app.multibot.service import _decode
     start = int(datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp())
     end = start + 86400
 
